@@ -81,7 +81,8 @@ progress::-moz-progress-bar { background: var(--accent); }
 .toolset { display: flex; align-items: center; gap: 4px; }
 .tool-divider { width: 1px; height: 20px; background: var(--line); margin: 0 3px; }
 .zoom { gap: 1px; }
-#zoom-level { min-width: 50px; text-align: center; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+#actual-size { display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#actual-size[aria-pressed="true"], #fit[aria-pressed="true"] { background: #f2eff4; color: var(--ink); }
 .fit { margin-left: 4px; }
 
 .batch-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 15px; border-bottom: 1px solid var(--line); background: #fbf9fc; color: var(--muted); font-size: 12px; }
@@ -107,9 +108,12 @@ progress::-moz-progress-bar { background: var(--accent); }
 .handle[data-handle="ne"] { top: 0; left: 100%; cursor: nesw-resize; }
 .handle[data-handle="sw"] { top: 100%; left: 0; cursor: nesw-resize; }
 .handle[data-handle="se"] { top: 100%; left: 100%; cursor: nwse-resize; }
-.empty { height: 100%; min-height: 190px; display: grid; align-content: center; justify-items: center; gap: 13px; color: var(--muted); }
-.empty .icon { width: 35px; height: 35px; }
-.empty h3 { color: var(--ink); font-size: 16px; }
+.empty { height: 100%; min-height: 220px; display: grid; align-content: center; justify-items: center; gap: 12px; padding: 24px 12px; color: var(--muted); text-align: center; }
+.empty > [data-icon] { padding: 10px; color: var(--accent); background: var(--accent-soft); border-radius: 12px; }
+.empty > [data-icon] .icon { width: 28px; height: 28px; }
+.empty h3 { color: var(--ink); font-size: 20px; }
+.empty > p { margin-bottom: 4px; font-size: 13px; }
+.empty .text-button { margin: 0; }
 .drop-overlay { position: fixed; z-index: 3; inset: 12px; border: 2px dashed var(--accent); border-radius: 15px; display: grid; place-items: center; background: #fcf0f5ee; color: var(--accent); font-size: 23px; font-weight: 700; pointer-events: none; }
 .drop-overlay .icon { width: 28px; height: 28px; }
 
@@ -200,7 +204,8 @@ dialog .batch-targets, dialog .batch-masks { margin: 0; padding: 4px; max-height
   .toolset { gap: 0; }
   .button.tool { padding: 0 6px; font-size: 11px; }
   .button.icon-button { width: 27px; }
-  #zoom-level { min-width: 35px; font-size: 11px; }
+  #actual-size { min-width: 35px; padding: 0 3px; font-size: 11px; }
+  .actual-label { display: none; }
   .fit { margin-left: 0; padding: 0 4px !important; }
   .fit .icon { display: none; }
   .stage-inner { padding: 14px; }
@@ -219,6 +224,6 @@ dialog .batch-targets, dialog .batch-masks { margin: 0; padding: 4px; max-height
   .toolset .icon-button { width: 23px; }
   .toolset .icon { width: 15px; height: 15px; }
   .tool-divider { margin: 0 2px; }
-  #zoom-level { min-width: 32px; }
+  #actual-size { min-width: 32px; }
   .toolbar .fit { padding: 0 3px !important; }
 }

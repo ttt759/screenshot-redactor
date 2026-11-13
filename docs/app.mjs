@@ -94,22 +94,23 @@ function renderRows() {
   $('progress').max = Math.max(1, entries.length);
   $('progress').value = reviewed;
   $('progress').setAttribute('aria-valuenow', reviewed);
-  $('samples').hidden = entries.length > 0;
 }
 
 function fittedScale(entry) {
   const padding = parseFloat(getComputedStyle($('stage-inner')).paddingLeft) * 2;
-  return Math.min(1, Math.max(1, stage.clientWidth - padding - 1) / entry.width,
-    Math.max(1, stage.clientHeight - padding - 1) / entry.height);
+  return Math.min(1, devicePixelRatio * Math.max(1, stage.clientWidth - padding - 1) / entry.width,
+    devicePixelRatio * Math.max(1, stage.clientHeight - padding - 1) / entry.height);
 }
 
 function layoutArtboard() {
   const entry = active();
   if (!entry) return;
   const scale = zoom ?? fittedScale(entry);
-  artboard.style.width = `${entry.width * scale}px`;
-  artboard.style.height = `${entry.height * scale}px`;
+  artboard.style.width = `${entry.width * scale / devicePixelRatio}px`;
+  artboard.style.height = `${entry.height * scale / devicePixelRatio}px`;
   $('zoom-level').textContent = `${Math.round(scale * 100)}%`;
+  $('actual-size').setAttribute('aria-pressed', String(zoom === 1));
+  $('fit').setAttribute('aria-pressed', String(zoom === null));
   setDisabled('zoom-out', scale <= Math.min(0.05, fittedScale(entry)));
   setDisabled('zoom-in', scale >= 8);
 }
@@ -156,6 +157,8 @@ function renderEditor() {
   $('active-detail').textContent = entry ? `${entry.width} × ${entry.height} px${entry.demo ? ' · 虚构示例' : ''}` : '';
   $('empty').hidden = Boolean(entry);
   $('stage-inner').hidden = !entry;
+  $('toolbar').hidden = !entry;
+  $('editor-foot').hidden = !entry;
   $('edit').setAttribute('aria-pressed', editing);
   $('preview-button').setAttribute('aria-pressed', Boolean(entry) && !editing);
   $('draw').setAttribute('aria-pressed', editing && tool === 'draw');
@@ -187,6 +190,7 @@ function renderEditor() {
   setDisabled('export-one', !entry || busy || importsPending > 0);
   setDisabled('export-all', !entries.length || busy || importsPending > 0);
   setDisabled('fit', !entry);
+  setDisabled('actual-size', !entry);
   $('review').checked = entry?.checked ?? false;
   $('mask-count').textContent = entry ? `${entry.boxes.length} 处遮挡` : '';
   $('mode-hint').textContent = !entry ? '可以拖入多张截图，或直接粘贴剪贴板中的图片。'
@@ -428,7 +432,7 @@ function useTool(nextTool) {
   renderEditor();
 }
 
-function changeZoom(direction) {
+function changeZoom(mode) {
   const entry = active();
   if (!entry || gesture) return;
   const current = zoom ?? fittedScale(entry);
@@ -436,7 +440,8 @@ function changeZoom(direction) {
   const area = artboard.getBoundingClientRect();
   const x = (stage.clientWidth / 2 + stage.scrollLeft - (area.left - inner.left)) / area.width;
   const y = (stage.clientHeight / 2 + stage.scrollTop - (area.top - inner.top)) / area.height;
-  zoom = direction ? clamp(current * 1.25 ** direction, Math.min(0.05, fittedScale(entry)), 8) : null;
+  zoom = mode === 'fit' ? null : mode === 'original' ? 1
+    : clamp(current * 1.25 ** mode, Math.min(0.05, fittedScale(entry)), 8);
   layoutArtboard();
   const adjusted = artboard.getBoundingClientRect();
   const currentInner = $('stage-inner').getBoundingClientRect();
@@ -640,7 +645,8 @@ $('undo').onclick = undo;
 $('delete').onclick = deleteBox;
 $('zoom-in').onclick = () => changeZoom(1);
 $('zoom-out').onclick = () => changeZoom(-1);
-$('fit').onclick = () => changeZoom(0);
+$('fit').onclick = () => changeZoom('fit');
+$('actual-size').onclick = () => changeZoom('original');
 $('review').onchange = (event) => {
   active().checked = event.target.checked;
   renderRows();
@@ -715,6 +721,11 @@ document.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
   const plainKey = !event.ctrlKey && !event.metaKey && !event.altKey;
   if (plainKey && !event.shiftKey) {
+    if (key === '0') {
+      event.preventDefault();
+      changeZoom('original');
+      return;
+    }
     if (key === 'w' || key === 's') {
       event.preventDefault();
       (key === 'w' ? $('previous') : $('next')).click();
@@ -755,6 +766,14 @@ document.addEventListener('keydown', (event) => {
 });
 
 new ResizeObserver(() => { if (!gesture) layoutArtboard(); }).observe(stage);
+
+function watchDisplayScale() {
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => {
+    if (!gesture) layoutArtboard();
+    watchDisplayScale();
+  }, { once: true });
+}
+
+watchDisplayScale();
 renderRows();
 renderEditor();
-addSamples();

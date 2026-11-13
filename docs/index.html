@@ -34,7 +34,6 @@
         <button class="upload-zone" id="drop-button">
           <span data-icon="upload">拖入或粘贴截图</span><small>PNG / JPG · 支持多张</small>
         </button>
-        <button class="text-button" id="samples" hidden>加载虚构示例</button>
       </div>
     </aside>
 
@@ -47,7 +46,7 @@
         </div>
       </header>
 
-      <div class="toolbar" aria-label="编辑工具">
+      <div id="toolbar" class="toolbar" aria-label="编辑工具" hidden>
         <div class="toolset">
           <button class="button tool" id="draw" data-icon="box" aria-pressed="true" aria-keyshortcuts="R" title="画遮挡框 (R)" disabled>画遮挡框<kbd aria-hidden="true">R</kbd></button>
           <button class="button icon-button" id="select" data-icon="cursor" aria-label="选择遮挡框" aria-pressed="false" title="选择遮挡框 (V)" disabled></button>
@@ -58,7 +57,7 @@
         </div>
         <div class="toolset zoom" aria-label="缩放">
           <button class="button icon-button" id="zoom-out" data-icon="minus" aria-label="缩小" title="缩小" disabled></button>
-          <span id="zoom-level">—</span>
+          <button class="button compact" id="actual-size" aria-label="原图大小" aria-keyshortcuts="0" title="原图大小，按 0 (1:1 像素显示)" disabled><span id="zoom-level">—</span><span class="actual-label" aria-hidden="true">原图</span></button>
           <button class="button icon-button" id="zoom-in" data-icon="plus" aria-label="放大" title="放大" disabled></button>
           <button class="button compact fit" id="fit" data-icon="expand" title="适应画布" disabled>适应</button>
         </div>
@@ -73,7 +72,13 @@
       </div>
 
       <div id="stage" class="stage">
-        <div id="empty" class="empty" hidden><span data-icon="image"></span><h3>添加截图开始编辑</h3><button id="empty-import" class="button subtle" data-icon="plus">选择图片</button></div>
+        <div id="empty" class="empty">
+          <span data-icon="image" aria-hidden="true"></span>
+          <h3>拖入截图开始编辑</h3>
+          <p>支持多张 PNG / JPG，也可以直接粘贴。</p>
+          <button id="empty-import" class="button primary" data-icon="plus">选择图片</button>
+          <button class="text-button" id="samples">加载虚构示例</button>
+        </div>
         <div class="stage-inner" id="stage-inner" hidden>
           <div id="artboard" class="artboard" data-tool="draw" aria-label="图片画布" tabindex="0">
             <img id="source" alt="当前截图" draggable="false">
@@ -84,7 +89,7 @@
         <div id="drop-overlay" class="drop-overlay" hidden><span data-icon="upload">松开以导入截图</span></div>
       </div>
 
-      <footer class="editor-foot">
+      <footer id="editor-foot" class="editor-foot" hidden>
         <div class="review-actions">
           <label class="review"><input type="checkbox" id="review" disabled><span>标记为已检查</span></label>
           <button id="confirm-next" class="button review-next compact" data-icon="right" aria-keyshortcuts="E" title="确认并继续 (E)" hidden><span id="confirm-next-label">确认并继续</span><kbd aria-hidden="true">E</kbd></button>

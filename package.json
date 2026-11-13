@@ -1,6 +1,6 @@
 {
   "name": "screenshot-redactor",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Batch screenshot redaction on your device",
   "private": true,
   "type": "module",

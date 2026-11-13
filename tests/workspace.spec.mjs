@@ -5,6 +5,48 @@ import { unzipSync } from 'fflate';
 
 const assets = ['account.png', 'checkout.jpg', 'receipt.png'];
 const demoCount = 5;
+
+test('opens an empty import workspace and only loads samples on request', async ({ page }) => {
+  const sampleRequests = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.includes('/samples/')) sampleRequests.push(request.url());
+  });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: '选择图片' })).toBeVisible();
+  await expect(page.locator('.file-row')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '导出全部 ZIP' })).toBeDisabled();
+  expect(sampleRequests).toEqual([]);
+  await page.getByRole('button', { name: '加载虚构示例' }).click();
+  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+  await page.reload();
+  await expect(page.locator('.file-row')).toHaveCount(0);
+});
+
+test('displays one image pixel per screen pixel at original size on a high DPI screen', async ({ browser, baseURL }) => {
+  const page = await browser.newPage({ deviceScaleFactor: 1.5, viewport: { width: 1440, height: 960 }, baseURL });
+  try {
+    await page.goto('/');
+    await page.locator('#file-input').setInputFiles(resolve('docs/samples/account.png'));
+    await expect(page.getByRole('heading', { name: 'account.png' })).toBeVisible();
+    await page.getByRole('button', { name: '原图大小' }).click();
+    const sample = async (selector) => page.locator(selector).evaluate((image) => {
+      const bounds = image.getBoundingClientRect();
+      return [bounds.width * devicePixelRatio, bounds.height * devicePixelRatio];
+    });
+    expect((await sample('#source')).map(Math.round)).toEqual([1120, 700]);
+    await page.getByRole('button', { name: '成品预览' }).click();
+    expect((await sample('#preview')).map(Math.round)).toEqual([1120, 700]);
+    expect(await page.locator('#preview').evaluate((canvas) => [canvas.width, canvas.height])).toEqual([1120, 700]);
+  } finally {
+    await page.close();
+  }
+});
+
+async function openSamples(page) {
+  await page.goto('/');
+  await page.getByRole('button', { name: '加载虚构示例' }).click();
+  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+}
 const sampleSizes = [[1120, 700], [1024, 640], [720, 930]];
 const sampleMasks = [[446, 403, 700, 431], [67, 341, 295, 375], [429, 540, 625, 736]];
 
@@ -95,7 +137,7 @@ test('reviews ten mixed images and exports original dimensions and exact preview
     if (/^https?:/.test(request.url()) && !request.url().startsWith('http://127.0.0.1:4173/')) outsideRequests.push(request.url());
   });
   await page.goto('/');
-  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+  await expect(page.locator('.file-row')).toHaveCount(0);
   const fixtures = await Promise.all(Array.from({ length: 10 }, async (_, index) => {
     const name = assets[index];
     if (!name) return fixture(page, index);
@@ -148,8 +190,7 @@ test('reviews ten mixed images and exports original dimensions and exact preview
 });
 
 test('moves and resizes at high zoom, restores edits independently, and reopens review', async ({ page }) => {
-  await page.goto('/');
-  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+  await openSamples(page);
   await page.locator('#file-input').setInputFiles(assets.slice(0, 2).map((name) => resolve('docs/samples', name)));
   await expect(page.locator('.file-row')).toHaveCount(2);
   const current = page.getByRole('checkbox', { name: '标记为已检查' });
@@ -183,7 +224,7 @@ test('moves and resizes at high zoom, restores edits independently, and reopens 
 
 test('pastes a screenshot and downloads the individual flattened PNG', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+  await expect(page.locator('.file-row')).toHaveCount(0);
   await page.evaluate(async () => {
     const data = new DataTransfer();
     data.items.add(new File([await (await fetch('./samples/receipt.png')).blob()], 'pasted.png', { type: 'image/png' }));
@@ -202,8 +243,7 @@ test('pastes a screenshot and downloads the individual flattened PNG', async ({ 
 });
 
 test('rejects animated PNG so editing and export cannot show different frames', async ({ page }) => {
-  await page.goto('/');
-  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+  await openSamples(page);
   const animated = 'iVBORw0KGgoAAAANSUhEUgAAAAMAAAADCAIAAADZSiLoAAAACGFjVEwAAAACAAAAAPONk3AAAAAaZmNUTAAAAAAAAAADAAAAAwAAAAAAAAAAAAEABAAAjNOqugAAABFJREFUeJxj/M8ABUwwBhILAB1bAQXoN6jFAAAAGmZjVEwAAAABAAAAAwAAAAMAAAAAAAAAAAABAAQAABegQG4AAAAXZmRBVAAAAAJ4nGNkYPjPAAZMEAqFBQAbXQEFbkuO+wAAAABJRU5ErkJggg==';
   await page.locator('#file-input').setInputFiles({ name: 'animated.png', mimeType: 'image/png', buffer: Buffer.from(animated, 'base64') });
   await expect(page.getByRole('status')).toContainText('动态 PNG');
@@ -280,7 +320,7 @@ test('copies a selected mask to chosen same-size screenshots and exports it inde
 });
 
 test('confirms a preview and jumps to the next unreviewed image across the end of the list', async ({ page }) => {
-  await page.goto('/');
+  await openSamples(page);
   const rows = page.locator('.file-row');
   await expect(rows).toHaveCount(demoCount);
   const check = page.getByRole('checkbox', { name: '标记为已检查' });
@@ -303,8 +343,7 @@ test('confirms a preview and jumps to the next unreviewed image across the end o
 
 test('keeps preview actions visible on a narrow mobile viewport', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
-  await page.goto('/');
-  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+  await openSamples(page);
   await page.getByRole('button', { name: '成品预览' }).click();
   await page.getByRole('checkbox', { name: '标记为已检查' }).check();
   const footer = await page.locator('.editor-foot').evaluate(({ scrollWidth, clientWidth }) => ({ scrollWidth, clientWidth }));
@@ -314,8 +353,7 @@ test('keeps preview actions visible on a narrow mobile viewport', async ({ page 
 
 test('keeps the next review action in view on short screens', async ({ page }) => {
   await page.setViewportSize({ width: 667, height: 375 });
-  await page.goto('/');
-  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+  await openSamples(page);
   await page.getByRole('button', { name: '成品预览' }).click();
   const next = page.getByRole('button', { name: '确认并继续' });
   await next.click();
@@ -324,8 +362,7 @@ test('keeps the next review action in view on short screens', async ({ page }) =
 });
 
 test('pauses export and batch actions while an import is still being read', async ({ page }) => {
-  await page.goto('/');
-  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+  await openSamples(page);
   await page.evaluate(() => {
     const nativeRead = Blob.prototype.arrayBuffer;
     const gate = new Promise((resolve) => { window.resumeFileRead = resolve; });
@@ -343,7 +380,7 @@ test('pauses export and batch actions while an import is still being read', asyn
 });
 
 test('navigates and starts drawing with left-hand shortcuts in edit and preview', async ({ page }) => {
-  await page.goto('/');
+  await openSamples(page);
   const rows = page.locator('.file-row');
   const previous = page.getByRole('button', { name: '上一张', exact: true });
   const next = page.getByRole('button', { name: '下一张', exact: true });
@@ -438,7 +475,7 @@ test('applies multiple chosen masks to nine screenshots and undoes the batch whi
 });
 
 test('E confirms one preview per keypress and skips checked images', async ({ page }) => {
-  await page.goto('/');
+  await openSamples(page);
   const rows = page.locator('.file-row');
   await expect(rows).toHaveCount(demoCount);
   await page.keyboard.press('e');

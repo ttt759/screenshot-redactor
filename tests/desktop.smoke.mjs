@@ -33,7 +33,8 @@ try {
   await page.setViewportSize({ width: 1280, height: 800 });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.locator('.file-row').nth(4).waitFor();
+  await page.getByRole('button', { name: '选择图片', exact: true }).waitFor();
+  assert.equal(await page.locator('.file-row').count(), 0);
   assert.equal(page.url(), 'https://screenshot-redactor.local/index.html');
   assert.deepEqual(await page.evaluate(() => [isSecureContext, typeof window.require, typeof crypto.randomUUID]), [true, 'undefined', 'function']);
   assert.equal(await page.evaluate(async () => (await fetch('/package.json')).status), 404);
@@ -43,6 +44,10 @@ try {
   await page.getByRole('button', { name: 'account-team.png 待检查' }).waitFor();
   const button = (name) => page.getByRole('button', { name, exact: true });
   const artboard = page.locator('#artboard');
+  await button('原图大小').click();
+  const width = await artboard.evaluate((node) => Math.round(node.getBoundingClientRect().width * devicePixelRatio));
+  assert.equal(width, 1120);
+  await button('适应').click();
   await artboard.hover();
   const bounds = await artboard.boundingBox();
   await page.mouse.move(bounds.x + bounds.width * .33, bounds.y + bounds.height * .52);
@@ -71,7 +76,7 @@ try {
   const zip = unzipSync(data);
   assert.deepEqual(Object.keys(zip), ['01-redacted.png', '02-redacted.png']);
   assert.deepEqual(errors, []);
-  console.log('Desktop smoke passed: local renderer, import, edit, copy, review, and ZIP export.');
+  console.log('Desktop smoke passed: empty startup, original pixel size, import, edit, review, and ZIP export.');
 } finally {
   await browser?.close();
   if (app.exitCode === null) {
