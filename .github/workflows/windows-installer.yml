@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - name: Check release version and asset
+      - name: Check release version and assets
         id: asset
         env:
           GH_TOKEN: ${{ github.token }}
@@ -31,10 +31,12 @@ jobs:
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           if ($env:RELEASE_TAG -ne "v$version") { throw 'Release tag must match package.json' }
           $name = "screenshot-redactor-setup-$version-windows-x64.exe"
+          $portable = "screenshot-redactor-portable-$version-windows-x64.zip"
           $existing = gh api --paginate "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets" --jq '.[] | select(.state == "uploaded" and .size > 0) | .name'
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           "name=$name" >> $env:GITHUB_OUTPUT
-          $present = ($existing -contains $name).ToString().ToLowerInvariant()
+          "portable=$portable" >> $env:GITHUB_OUTPUT
+          $present = ($existing -contains $name -and $existing -contains $portable).ToString().ToLowerInvariant()
           "present=$present" >> $env:GITHUB_OUTPUT
       - if: steps.asset.outputs.present == 'false'
         run: npm ci
@@ -42,19 +44,47 @@ jobs:
         run: npm test
       - if: steps.asset.outputs.present == 'false'
         run: npm run package:win
+      - name: Ensure WebView2 is available for the desktop test
+        if: steps.asset.outputs.present == 'false'
+        shell: pwsh
+        run: |
+          $client = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $paths = @("HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$client", "HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$client")
+          $installed = foreach ($path in $paths) {
+            Get-ItemPropertyValue -LiteralPath $path -Name pv -ErrorAction SilentlyContinue
+          }
+          if ($installed | Where-Object { $_ -and [version]$_ -gt [version]'0.0.0.0' }) { exit 0 }
+          $setup = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $setup
+          $signature = Get-AuthenticodeSignature -LiteralPath $setup
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Invalid WebView2 installer signature' }
+          $process = Start-Process -FilePath $setup -ArgumentList '/silent /install' -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode) { exit $process.ExitCode }
       - if: steps.asset.outputs.present == 'false'
-        run: npm run test:desktop -- release/win-unpacked/ScreenshotRedactor.exe
-      - name: Attach Windows installer
+        shell: pwsh
+        run: |
+          $env:REDACTOR_PACKAGE_UNDER_TEST = 'release/lightweight'
+          node --test tests/installer.test.mjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run test:desktop
+      - name: Attach Windows downloads
         if: steps.asset.outputs.present == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           INSTALLER_NAME: ${{ steps.asset.outputs.name }}
+          PORTABLE_NAME: ${{ steps.asset.outputs.portable }}
         shell: pwsh
         run: |
           $incomplete = gh api --paginate "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets" --jq '.[] | select(.state == "starter") | .name'
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          if ($incomplete -contains $env:INSTALLER_NAME) {
-            gh release delete-asset $env:RELEASE_TAG $env:INSTALLER_NAME --yes
+          $existing = gh api --paginate "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets" --jq '.[] | select(.state == "uploaded" and .size > 0) | .name'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          foreach ($name in @($env:INSTALLER_NAME, $env:PORTABLE_NAME)) {
+            if ($existing -contains $name) { continue }
+            if ($incomplete -contains $name) {
+              gh release delete-asset $env:RELEASE_TAG $name --yes
+              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            }
+            gh release upload $env:RELEASE_TAG "release/lightweight/$name"
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
-          gh release upload $env:RELEASE_TAG "release/$env:INSTALLER_NAME"

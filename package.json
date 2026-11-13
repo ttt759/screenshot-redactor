@@ -1,21 +1,19 @@
 {
   "name": "screenshot-redactor",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Batch screenshot redaction on your device",
-  "main": "desktop/main.cjs",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node scripts/serve.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "playwright test",
-    "desktop": "electron .",
+    "desktop": "pwsh -NoProfile -File scripts/build-desktop.ps1",
     "test:desktop": "node tests/desktop.smoke.mjs",
-    "package:win": "electron-builder --win nsis --x64 --publish never"
+    "package:win": "npm run desktop && electron-builder --win nsis --x64 --prepackaged release/lightweight/win-unpacked --publish never"
   },
   "devDependencies": {
     "@playwright/test": "1.61.0",
-    "electron": "45.3.1",
     "electron-builder": "26.18.0",
     "fflate": "0.8.3"
   },
@@ -25,13 +23,17 @@
   "build": {
     "appId": "io.github.ttt759.screenshotredactor",
     "productName": "截图脱敏助手",
-    "directories": { "output": "release" },
-    "files": ["desktop/main.cjs", "docs/**/*"],
+    "electronVersion": "45.3.1",
+    "directories": { "output": "release/lightweight" },
     "win": { "icon": "desktop/icon.ico", "target": "nsis", "executableName": "ScreenshotRedactor", "signExecutable": false },
     "nsis": {
       "artifactName": "screenshot-redactor-setup-${version}-windows-${arch}.${ext}",
       "oneClick": false,
       "perMachine": false,
+      "selectPerMachineByDefault": false,
+      "allowElevation": false,
+      "packElevateHelper": false,
+      "differentialPackage": false,
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "desktop/icon.ico",
       "uninstallerIcon": "desktop/icon.ico",

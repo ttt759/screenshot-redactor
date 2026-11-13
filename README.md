@@ -4,7 +4,7 @@
 
 **[打开在线演示](https://ttt759.github.io/screenshot-redactor/)** · [下载最新版本](https://github.com/ttt759/screenshot-redactor/releases/latest)
 
-在最新版本的「Assets」中下载 `screenshot-redactor-setup-…-windows-x64.exe`。安装后可从 Windows 开始菜单打开，断网也能导入、编辑和导出。更新时运行新版安装包即可。
+最新版本的「Assets」提供 Windows x64 安装包（EXE）和完整程序压缩包（ZIP）。安装版可从开始菜单打开，更新时运行新版安装包。ZIP 解压后双击 `ScreenshotRedactor.exe` 即可使用。两种版本都复用系统的 Microsoft Edge WebView2 运行时，支持离线导入、编辑和导出。缺少运行时的电脑首次打开时会提示前往微软下载页。
 
 ![截图脱敏助手操作演示，将多个遮挡框应用到两张截图，逐张检查并导出 ZIP](./demo.gif)
 
@@ -43,6 +43,6 @@ npm run test:e2e
 
 浏览器验收会一次拖入 10 张混合尺寸的 PNG/JPG，在其中三张遮住邮箱、订单号和二维码，逐张预览确认后下载 ZIP。测试会解压并检查顺序、尺寸、黑块像素，以及导出图片与成品预览逐像素一致。
 
-在 Windows x64 上可运行 `npm run package:win` 生成安装包，再用 `npm run test:desktop -- release/win-unpacked/ScreenshotRedactor.exe` 验证打包结果。GitHub 发布版本时会检查对应安装包，缺少时构建并附到该版本。
+在 Windows x64 上可运行 `npm run package:win`，EXE 和完整程序 ZIP 输出到 `release/lightweight/`，再用 `npm run test:desktop` 验证打包结果。GitHub 发布时会构建并附上缺少的下载文件。
 
 ZIP 由本地打包的 [fflate](https://github.com/101arrowz/fflate) 生成。第三方许可见 [fflate.LICENSE.txt](docs/vendor/fflate.LICENSE.txt)。
