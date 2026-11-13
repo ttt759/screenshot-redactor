@@ -1,0 +1,52 @@
+name: Windows installer
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Check release version and asset
+        id: asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -ne "v$version") { throw 'Release tag must match package.json' }
+          $name = "screenshot-redactor-setup-$version-windows-x64.exe"
+          $existing = gh release view $env:RELEASE_TAG --json assets --jq '.assets[].name'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "name=$name" >> $env:GITHUB_OUTPUT
+          $present = ($existing -contains $name).ToString().ToLowerInvariant()
+          "present=$present" >> $env:GITHUB_OUTPUT
+      - if: steps.asset.outputs.present == 'false'
+        run: npm ci
+      - if: steps.asset.outputs.present == 'false'
+        run: npm test
+      - if: steps.asset.outputs.present == 'false'
+        run: npm run package:win
+      - if: steps.asset.outputs.present == 'false'
+        run: npm run test:desktop -- release/win-unpacked/ScreenshotRedactor.exe
+      - name: Attach Windows installer
+        if: steps.asset.outputs.present == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSTALLER_NAME: ${{ steps.asset.outputs.name }}
+        shell: pwsh
+        run: gh release upload $env:RELEASE_TAG "release/$env:INSTALLER_NAME"
