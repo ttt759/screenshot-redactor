@@ -84,6 +84,10 @@ progress::-moz-progress-bar { background: var(--accent); }
 #zoom-level { min-width: 50px; text-align: center; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .fit { margin-left: 4px; }
 
+.batch-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 15px; border-bottom: 1px solid var(--line); background: #fbf9fc; color: var(--muted); font-size: 12px; }
+#copy-mask:not(:disabled), .button.review-next { background: var(--accent-soft); border-color: #efd5df; color: var(--accent); }
+#copy-mask:not(:disabled):hover, .button.review-next:not(:disabled):hover { background: #f5dfe7; }
+
 .stage { flex: 1; min-height: 0; overflow: auto; position: relative; isolation: isolate; overscroll-behavior: contain; background: radial-gradient(circle, #d8d3de 0.8px, transparent 0.9px) 1px 1px / 16px 16px #f1eff3; }
 .stage-inner { display: grid; place-items: center; width: max-content; height: max-content; min-width: 100%; min-height: 100%; padding: 30px; }
 .artboard { background: conic-gradient(#eee 25%, #fff 0 50%, #eee 0 75%, #fff 0) 0 0 / 16px 16px; box-shadow: 0 2px 5px #2923351f, 0 16px 44px #29233521; position: relative; user-select: none; touch-action: none; }
@@ -112,7 +116,7 @@ progress::-moz-progress-bar { background: var(--accent); }
 .review-actions, .review { display: flex; align-items: center; gap: 12px; }
 .review { gap: 7px; cursor: pointer; font-size: 13px; font-weight: 650; white-space: nowrap; }
 .review input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
-#next .icon { order: 1; width: 14px; }
+#next .icon, #confirm-next .icon { order: 1; width: 14px; }
 .page-footer { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); padding: 14px 1px; font-size: 12px; }
 #mask-count { white-space: nowrap; }
 .toast { position: fixed; z-index: 4; bottom: 20px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 30px); border-radius: 9px; padding: 11px 16px; color: #fff; background: #2c2932; box-shadow: 0 5px 24px #24232b38; overflow-wrap: anywhere; }
@@ -125,6 +129,19 @@ dialog p { margin: 5px 0 14px; color: var(--muted); }
 dialog ul { padding: 10px 12px; list-style: none; margin: 0 0 20px; max-height: 34vh; overflow: auto; border-radius: 8px; background: #f6f4f7; }
 dialog li { padding: 5px 0; overflow-wrap: anywhere; font-size: 13px; }
 .dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+#batch-dialog[open] { display: flex; flex-direction: column; max-height: calc(100dvh - 20px); }
+#batch-dialog > :not(.batch-targets) { flex-shrink: 0; }
+.batch-source { font-weight: 650; color: var(--ink); overflow-wrap: anywhere; }
+.batch-controls { display: flex; align-items: center; justify-content: space-between; gap: 7px; margin: 2px 0 8px; font-size: 12px; color: var(--muted); }
+.batch-controls label, .batch-targets label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.batch-controls input, .batch-targets input { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--accent); }
+dialog .batch-targets { padding: 4px; min-height: 0; max-height: 39dvh; }
+.batch-targets li { padding: 0; }
+.batch-targets label { min-height: 54px; padding: 6px 8px; border-radius: 6px; }
+.batch-targets label:has(:checked) { background: var(--accent-soft); }
+.batch-targets label:has(:disabled) { cursor: default; opacity: .62; }
+.batch-targets .thumb { width: 53px; height: 36px; }
+.batch-targets small { color: var(--muted); font-size: 11px; }
 
 @media (max-width: 1000px) {
   body { padding: 0 20px; }
@@ -158,6 +175,8 @@ dialog li { padding: 5px 0; overflow-wrap: anywhere; font-size: 13px; }
   .file-heading h2 { font-size: 13px; }
   .segmented button { padding: 5px 6px; }
   .toolbar { padding: 4px; gap: 2px; }
+  .batch-bar { padding: 4px 8px; font-size: 11px; }
+  .batch-bar .button { min-height: 30px; }
   .toolset { gap: 0; }
   .button.tool { padding: 0 6px; font-size: 11px; }
   .button.icon-button { width: 27px; }
@@ -165,10 +184,12 @@ dialog li { padding: 5px 0; overflow-wrap: anywhere; font-size: 13px; }
   .fit { margin-left: 0; padding: 0 4px !important; }
   .fit .icon { display: none; }
   .stage-inner { padding: 14px; }
-  .editor-foot { padding: 6px; min-height: 45px; }
+  .editor-foot { padding: 6px; min-height: 45px; flex-wrap: wrap; }
+  .editor-foot #export-one { margin-left: auto; }
   .review-actions { gap: 4px; }
   .review { font-size: 11px; gap: 3px; }
   .editor-foot .button { padding: 0 5px; font-size: 11px; }
+  .editor-foot .button .icon { width: 14px; }
   .page-footer { padding: 8px 0; font-size: 11px; }
 }
 

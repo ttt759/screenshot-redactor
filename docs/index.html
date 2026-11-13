@@ -15,7 +15,7 @@
   <header class="page-header">
     <div class="identity">
       <span class="brand-icon" id="brand-icon" aria-hidden="true"></span>
-      <div><h1>截图脱敏助手</h1><p>框选敏感信息，检查后批量导出。</p></div>
+      <div><h1>截图脱敏助手</h1><p>画一次遮挡框，批量应用到同尺寸截图。</p></div>
     </div>
     <div class="header-actions">
       <span class="privacy" data-icon="shield">图片仅在本机处理</span>
@@ -64,6 +64,11 @@
         </div>
       </div>
 
+      <div id="batch-bar" class="batch-bar" hidden>
+        <span id="batch-hint">先画出或选中一个遮挡框</span>
+        <button class="button subtle compact" id="copy-mask" data-icon="copy" aria-describedby="batch-hint" disabled>批量应用遮挡</button>
+      </div>
+
       <div id="stage" class="stage">
         <div id="empty" class="empty" hidden><span data-icon="image"></span><h3>添加截图开始编辑</h3><button id="empty-import" class="button subtle" data-icon="plus">选择图片</button></div>
         <div class="stage-inner" id="stage-inner" hidden>
@@ -80,6 +85,7 @@
         <div class="review-actions">
           <label class="review"><input type="checkbox" id="review" disabled><span>标记为已检查</span></label>
           <button id="next" class="button subtle compact" data-icon="right" disabled>下一张</button>
+          <button id="confirm-next" class="button review-next compact" data-icon="right" hidden>确认并继续</button>
         </div>
         <button class="button subtle compact" id="export-one" data-icon="download" disabled>导出当前 PNG</button>
       </footer>
@@ -97,6 +103,18 @@
     <p id="dialog-note"></p>
     <ul id="unchecked-list"></ul>
     <div class="dialog-actions"><button class="button subtle" id="force-export">仍然导出</button><button class="button primary" id="start-review">逐张检查</button></div>
+  </dialog>
+
+  <dialog id="batch-dialog" aria-labelledby="batch-title" aria-describedby="batch-description">
+    <div class="dialog-heading"><h2 id="batch-title">批量应用遮挡框</h2><button id="close-batch" class="button icon-button" data-icon="close" aria-label="关闭" title="关闭"></button></div>
+    <p id="batch-source" class="batch-source"></p>
+    <p id="batch-description">勾选布局相同的截图。遮挡框会复制到原图的相同像素位置。</p>
+    <div class="batch-controls">
+      <label><input type="checkbox" id="batch-select-all">全选可应用截图</label>
+      <span id="batch-count" aria-live="polite"></span>
+    </div>
+    <ul id="batch-targets" class="batch-targets" aria-label="目标截图"></ul>
+    <div class="dialog-actions"><button class="button subtle" id="cancel-batch">取消</button><button class="button primary" id="apply-batch" disabled>应用到 0 张</button></div>
   </dialog>
 </body>
 </html>

@@ -10,11 +10,14 @@ const masks = $('masks');
 const preview = $('preview');
 const source = $('source');
 const dialog = $('export-dialog');
+const batchDialog = $('batch-dialog');
 const corners = ['nw', 'ne', 'sw', 'se'];
 const samples = [
   ['account.png', '01-账号信息.png', [{ id: 'sample-email', x: 446, y: 403, width: 254, height: 28 }]],
   ['checkout.jpg', '02-付款页面.jpg', []],
   ['receipt.png', '03-付款记录.png', []],
+  ['account-team.png', '04-账号信息.png', []],
+  ['account-studio.png', '05-账号信息.png', []],
 ];
 
 let entries = [];
@@ -25,8 +28,10 @@ let selected = null;
 let zoom = null;
 let gesture = null;
 let busy = false;
+let importsPending = 0;
 let queue = Promise.resolve();
 let pendingExport = null;
+let pendingBatch = null;
 let toastTimer;
 let dragDepth = 0;
 let previewEntry = null;
@@ -34,6 +39,9 @@ let previewBoxes = null;
 
 const active = () => entries[index];
 const setDisabled = (id, disabled) => { $(id).disabled = disabled; };
+const openDialog = () => [dialog, batchDialog].find((item) => item.open);
+const sameSize = (first, second) => first.width === second.width && first.height === second.height;
+const sameBox = (first, second) => ['x', 'y', 'width', 'height'].every((key) => first[key] === second[key]);
 
 function makeEntry(name, { image, url }, demo = false, boxes = []) {
   return { name, image, url, demo, width: image.naturalWidth, height: image.naturalHeight, boxes, history: [], checked: false };
@@ -68,6 +76,7 @@ function renderRows() {
     const state = document.createElement('span');
     state.className = entry.checked ? 'file-state checked' : 'file-state';
     state.textContent = entry.checked ? '已检查' : '待检查';
+    if (entry.boxes.length) state.append(` · ${entry.boxes.length} 处遮挡`);
     label.append(name, state);
     row.append(thumb, label);
     row.addEventListener('click', () => goTo(position));
@@ -134,6 +143,7 @@ function renderMasks() {
 function renderEditor() {
   const entry = active();
   const editing = Boolean(entry) && view === 'edit';
+  const sameSizeCount = editing ? entries.filter((target) => target !== entry && sameSize(entry, target)).length : 0;
   $('active-name').textContent = entry?.name ?? '编辑区';
   $('active-detail').textContent = entry ? `${entry.width} × ${entry.height} px${entry.demo ? ' · 虚构示例' : ''}` : '';
   $('empty').hidden = Boolean(entry);
@@ -154,10 +164,16 @@ function renderEditor() {
   setDisabled('pan', !editing);
   setDisabled('undo', !editing || !entry?.history.length);
   setDisabled('delete', !editing || !selected);
+  $('batch-bar').hidden = !editing;
+  setDisabled('copy-mask', !editing || !selected || !sameSizeCount || Boolean(gesture) || importsPending > 0);
+  $('batch-hint').textContent = importsPending ? '正在读取截图…' : !sameSizeCount ? '导入同尺寸截图后可批量应用'
+    : selected ? `有 ${sameSizeCount} 张其他同尺寸截图` : '先画出或选中一个遮挡框';
   setDisabled('review', !entry);
   setDisabled('next', !entry || index >= entries.length - 1);
-  setDisabled('export-one', !entry || busy);
-  setDisabled('export-all', !entries.length || busy);
+  $('next').hidden = Boolean(entry) && !editing;
+  renderReviewControls();
+  setDisabled('export-one', !entry || busy || importsPending > 0);
+  setDisabled('export-all', !entries.length || busy || importsPending > 0);
   setDisabled('fit', !entry);
   $('review').checked = entry?.checked ?? false;
   $('mask-count').textContent = entry ? `${entry.boxes.length} 处遮挡` : '';
@@ -187,7 +203,12 @@ function goTo(position, nextView = view) {
   stage.scrollTo(0, 0);
   renderRows();
   renderEditor();
-  fileList.children[position]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const list = fileList.getBoundingClientRect();
+  const row = fileList.children[position].getBoundingClientRect();
+  fileList.scrollBy({
+    left: row.left < list.left ? row.left - list.left : Math.max(0, row.right - list.left - fileList.clientWidth),
+    top: row.top < list.top ? row.top - list.top : Math.max(0, row.bottom - list.top - fileList.clientHeight),
+  });
 }
 
 function changeView(nextView) {
@@ -198,14 +219,105 @@ function changeView(nextView) {
   renderEditor();
 }
 
-function editBoxes(boxes) {
-  const entry = active();
+function replaceBoxes(entry, boxes) {
   entry.history.push(entry.boxes);
   if (entry.history.length > 100) entry.history.shift();
   entry.boxes = boxes;
   entry.checked = false;
+}
+
+function editBoxes(boxes) {
+  replaceBoxes(active(), boxes);
   renderRows();
   renderEditor();
+}
+
+function renderReviewControls() {
+  const entry = active();
+  const next = $('confirm-next');
+  next.hidden = !entry || view !== 'preview';
+  if (next.hidden) return;
+  next.lastChild.textContent = entry.checked ? '下一张待检查' : '确认并继续';
+  next.disabled = entry.checked && entries.every((target) => target.checked);
+}
+
+function confirmAndContinue() {
+  active().checked = true;
+  const next = entries.findIndex((target, position) => position > index && !target.checked);
+  const position = next >= 0 ? next : entries.findIndex((target) => !target.checked);
+  if (position >= 0) {
+    goTo(position, 'preview');
+  } else {
+    renderRows();
+    renderEditor();
+    announce('已检查全部截图，可以导出 ZIP。');
+    $('export-all').focus({ preventScroll: true });
+  }
+}
+
+function renderBatchSelection() {
+  const available = pendingBatch.targets.filter(({ input }) => !input.disabled);
+  const count = available.filter(({ input }) => input.checked).length;
+  const all = $('batch-select-all');
+  all.disabled = !available.length;
+  all.checked = Boolean(count) && count === available.length;
+  all.indeterminate = count > 0 && count < available.length;
+  $('batch-count').textContent = `已选 ${count} / ${available.length} 张`;
+  $('apply-batch').textContent = `应用到 ${count} 张`;
+  setDisabled('apply-batch', !count);
+}
+
+function openBatchPicker() {
+  const entry = active();
+  const box = entry?.boxes.find((item) => item.id === selected);
+  if (!box || view !== 'edit' || gesture || importsPending) return;
+  $('batch-source').textContent = `来自 ${entry.name} · ${entry.width} × ${entry.height} px`;
+  const list = $('batch-targets');
+  list.replaceChildren();
+  const targets = entries.filter((target) => target !== entry).map((target) => {
+    const row = document.createElement('li');
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    const sizeMatches = sameSize(entry, target);
+    const alreadyCovered = target.boxes.some((item) => sameBox(item, box));
+    input.disabled = !sizeMatches || alreadyCovered;
+    input.addEventListener('change', renderBatchSelection);
+    const thumb = document.createElement('img');
+    thumb.className = 'thumb';
+    thumb.alt = '';
+    thumb.src = target.url;
+    const details = document.createElement('span');
+    details.className = 'file-label';
+    const name = document.createElement('strong');
+    name.className = 'file-name';
+    name.textContent = target.name;
+    name.title = target.name;
+    const caption = document.createElement('small');
+    caption.textContent = `${target.width} × ${target.height} px · ${!sizeMatches ? '尺寸不同' : alreadyCovered ? '已有相同遮挡框' : target.checked ? '已检查' : '待检查'}`;
+    details.append(name, caption);
+    label.append(input, thumb, details);
+    row.append(label);
+    list.append(row);
+    return { target, input };
+  });
+  pendingBatch = { box, targets };
+  renderBatchSelection();
+  batchDialog.showModal();
+  ($('batch-select-all').disabled ? $('close-batch') : $('batch-select-all')).focus();
+}
+
+function applyBatch() {
+  const { box, targets } = pendingBatch;
+  const chosen = targets.filter(({ input }) => input.checked && !input.disabled);
+  if (!chosen.length) return;
+  for (const { target } of chosen) {
+    replaceBoxes(target, [...target.boxes, { ...box, id: crypto.randomUUID() }]);
+  }
+  batchDialog.close();
+  renderRows();
+  renderEditor();
+  announce(`已应用到 ${chosen.length} 张截图，请逐张预览检查。`);
 }
 
 function undo() {
@@ -318,7 +430,7 @@ artboard.addEventListener('pointerup', (event) => {
   updateGesture(event);
   const { draft, original, id, mode } = gesture;
   gesture = null;
-  if (draft && (!original || ['x', 'y', 'width', 'height'].some((key) => draft[key] !== original[key]))) {
+  if (draft && (!original || !sameBox(draft, original))) {
     selected = id;
     if (mode === 'draw') tool = 'select';
     editBoxes(original ? active().boxes.map((box) => box.id === id ? draft : box) : [...active().boxes, draft]);
@@ -341,6 +453,9 @@ function enqueue(task) {
 
 function addFiles(files) {
   if (!files.length) return;
+  importsPending++;
+  renderEditor();
+  announce(`正在读取 ${files.length} 张截图…`);
   enqueue(async () => {
     const imported = [];
     let failures = 0;
@@ -354,6 +469,8 @@ function addFiles(files) {
       }
     }
     if (imported.length) {
+      const modal = openDialog();
+      if (modal) await new Promise((resolve) => modal.addEventListener('close', resolve, { once: true }));
       if (entries.every((entry) => entry.demo)) entries = [];
       const firstNew = entries.length;
       entries.push(...imported);
@@ -362,6 +479,10 @@ function addFiles(files) {
     }
     if (failures) announce(`${failures} 张图片无法导入。${animated ? '暂不支持动态 PNG。' : '请使用有效的 PNG 或 JPG 文件。'}`);
     else announce(`已导入 ${imported.length} 张截图`);
+  });
+  queue = queue.finally(() => {
+    importsPending--;
+    renderEditor();
   });
 }
 
@@ -375,11 +496,13 @@ function addSamples() {
     const position = entries.length;
     entries.push(...demo);
     goTo(position, 'edit');
+    selected = active().boxes[0]?.id ?? null;
+    if (selected) useTool('select');
   });
 }
 
 function requestExport(batch) {
-  if (busy || !active()) return;
+  if (busy || importsPending || !active()) return;
   const targets = batch ? [...entries] : [active()];
   const filename = batch ? 'screenshots-redacted.zip' : outputName(index, entries.length);
   const missing = targets.filter((entry) => !entry.checked);
@@ -433,8 +556,19 @@ $('fit').onclick = () => changeZoom(0);
 $('review').onchange = (event) => {
   active().checked = event.target.checked;
   renderRows();
+  renderReviewControls();
 };
 $('next').onclick = () => goTo(index + 1);
+$('confirm-next').onclick = confirmAndContinue;
+$('copy-mask').onclick = openBatchPicker;
+$('close-batch').onclick = $('cancel-batch').onclick = () => batchDialog.close();
+$('batch-select-all').onchange = (event) => {
+  for (const { input } of pendingBatch.targets) {
+    if (!input.disabled) input.checked = event.target.checked;
+  }
+  renderBatchSelection();
+};
+$('apply-batch').onclick = applyBatch;
 $('export-one').onclick = () => requestExport(false);
 $('export-all').onclick = () => requestExport(true);
 $('close-dialog').onclick = () => dialog.close();
@@ -452,7 +586,7 @@ $('force-export').onclick = () => {
 };
 
 document.addEventListener('paste', (event) => {
-  if (dialog.open) return;
+  if (openDialog()) return;
   const files = Array.from(event.clipboardData?.files ?? []);
   if (!files.length) return;
   event.preventDefault();
@@ -463,7 +597,7 @@ const hasFiles = (event) => Array.from(event.dataTransfer?.types ?? []).includes
 document.addEventListener('dragenter', (event) => {
   if (!hasFiles(event)) return;
   event.preventDefault();
-  if (!dialog.open) {
+  if (!openDialog()) {
     dragDepth++;
     $('drop-overlay').hidden = false;
   }
@@ -471,7 +605,7 @@ document.addEventListener('dragenter', (event) => {
 document.addEventListener('dragover', (event) => {
   if (!hasFiles(event)) return;
   event.preventDefault();
-  event.dataTransfer.dropEffect = dialog.open ? 'none' : 'copy';
+  event.dataTransfer.dropEffect = openDialog() ? 'none' : 'copy';
 });
 document.addEventListener('dragleave', (event) => {
   if (!hasFiles(event)) return;
@@ -483,11 +617,11 @@ document.addEventListener('drop', (event) => {
   event.preventDefault();
   dragDepth = 0;
   $('drop-overlay').hidden = true;
-  if (!dialog.open) addFiles(Array.from(event.dataTransfer.files));
+  if (!openDialog()) addFiles(Array.from(event.dataTransfer.files));
 });
 
 document.addEventListener('keydown', (event) => {
-  if (dialog.open || !active() || view !== 'edit' || gesture) return;
+  if (openDialog() || !active() || view !== 'edit' || gesture) return;
   const key = event.key.toLowerCase();
   if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === 'z') {
     event.preventDefault();

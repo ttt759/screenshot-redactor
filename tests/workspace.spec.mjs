@@ -4,6 +4,7 @@ import { expect, test } from '@playwright/test';
 import { unzipSync } from 'fflate';
 
 const assets = ['account.png', 'checkout.jpg', 'receipt.png'];
+const demoCount = 5;
 const sampleSizes = [[1120, 700], [1024, 640], [720, 930]];
 const sampleMasks = [[446, 403, 700, 431], [67, 341, 295, 375], [429, 540, 625, 736]];
 
@@ -94,7 +95,7 @@ test('reviews ten mixed images and exports original dimensions and exact preview
     if (/^https?:/.test(request.url()) && !request.url().startsWith('http://127.0.0.1:4173/')) outsideRequests.push(request.url());
   });
   await page.goto('/');
-  await expect(page.locator('.file-row')).toHaveCount(3);
+  await expect(page.locator('.file-row')).toHaveCount(demoCount);
   const fixtures = await Promise.all(Array.from({ length: 10 }, async (_, index) => {
     const name = assets[index];
     if (!name) return fixture(page, index);
@@ -148,7 +149,7 @@ test('reviews ten mixed images and exports original dimensions and exact preview
 
 test('moves and resizes at high zoom, restores edits independently, and reopens review', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('.file-row')).toHaveCount(3);
+  await expect(page.locator('.file-row')).toHaveCount(demoCount);
   await page.locator('#file-input').setInputFiles(assets.slice(0, 2).map((name) => resolve('docs/samples', name)));
   await expect(page.locator('.file-row')).toHaveCount(2);
   const current = page.getByRole('checkbox', { name: '标记为已检查' });
@@ -182,7 +183,7 @@ test('moves and resizes at high zoom, restores edits independently, and reopens 
 
 test('pastes a screenshot and downloads the individual flattened PNG', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('.file-row')).toHaveCount(3);
+  await expect(page.locator('.file-row')).toHaveCount(demoCount);
   await page.evaluate(async () => {
     const data = new DataTransfer();
     data.items.add(new File([await (await fetch('./samples/receipt.png')).blob()], 'pasted.png', { type: 'image/png' }));
@@ -202,9 +203,141 @@ test('pastes a screenshot and downloads the individual flattened PNG', async ({ 
 
 test('rejects animated PNG so editing and export cannot show different frames', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('.file-row')).toHaveCount(3);
+  await expect(page.locator('.file-row')).toHaveCount(demoCount);
   const animated = 'iVBORw0KGgoAAAANSUhEUgAAAAMAAAADCAIAAADZSiLoAAAACGFjVEwAAAACAAAAAPONk3AAAAAaZmNUTAAAAAAAAAADAAAAAwAAAAAAAAAAAAEABAAAjNOqugAAABFJREFUeJxj/M8ABUwwBhILAB1bAQXoN6jFAAAAGmZjVEwAAAABAAAAAwAAAAMAAAAAAAAAAAABAAQAABegQG4AAAAXZmRBVAAAAAJ4nGNkYPjPAAZMEAqFBQAbXQEFbkuO+wAAAABJRU5ErkJggg==';
   await page.locator('#file-input').setInputFiles({ name: 'animated.png', mimeType: 'image/png', buffer: Buffer.from(animated, 'base64') });
   await expect(page.getByRole('status')).toContainText('动态 PNG');
-  await expect(page.locator('.file-row')).toHaveCount(3);
+  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+});
+
+test('copies a selected mask to chosen same-size screenshots and exports it independently', async ({ page }) => {
+  await page.goto('/');
+  const original = await readFile(resolve('docs/samples/account.png'));
+  const png = (name) => ({ name, mimeType: 'image/png', buffer: original });
+  await page.locator('#file-input').setInputFiles([png('source.png'), png('chosen.png'), png('skip.png'), png('also-chosen.png'), {
+    name: 'different.jpg', mimeType: 'image/jpeg', buffer: await readFile(resolve('docs/samples/checkout.jpg')),
+  }]);
+  const rows = page.locator('.file-row');
+  const mask = page.locator('.mask');
+  await expect(rows).toHaveCount(5);
+  await expect(rows.first()).toContainText('source.png');
+  await rows.nth(1).click();
+  await page.getByRole('checkbox', { name: '标记为已检查' }).check();
+  await rows.nth(0).click();
+  const bounds = await page.locator('#artboard').boundingBox();
+  await drag(page, imagePoint(bounds, 1120, 700, 446, 403), imagePoint(bounds, 1120, 700, 700, 431));
+  const originalStyle = await mask.getAttribute('style');
+  const open = page.getByRole('button', { name: '批量应用遮挡' });
+  await open.click();
+  const picker = page.getByRole('dialog', { name: '批量应用遮挡框' });
+  await expect(picker.getByRole('checkbox', { name: /different\.jpg/ })).toBeDisabled();
+  await expect(picker.getByRole('checkbox', { name: /source\.png/ })).toHaveCount(0);
+  await expect(picker.getByRole('button', { name: '应用到 0 张' })).toBeDisabled();
+  await picker.getByRole('checkbox', { name: '全选可应用截图' }).check();
+  await picker.getByRole('checkbox', { name: /skip\.png/ }).uncheck();
+  await picker.getByRole('button', { name: '应用到 2 张' }).click();
+  await expect(picker).toBeHidden();
+  await expect(rows.nth(1)).toContainText('待检查');
+  await expect(rows.nth(1)).toContainText('1 处遮挡');
+  await expect(rows.nth(2)).not.toContainText('处遮挡');
+  await expect(rows.nth(3)).toContainText('1 处遮挡');
+  await open.click();
+  await expect(picker.getByRole('checkbox', { name: /^chosen\.png/ })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await rows.nth(1).click();
+  await expect(mask).toHaveAttribute('style', originalStyle);
+  await mask.click();
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect(mask).not.toHaveAttribute('style', originalStyle);
+  await rows.nth(0).click();
+  await expect(mask).toHaveAttribute('style', originalStyle);
+  await rows.nth(3).click();
+  await expect(mask).toHaveAttribute('style', originalStyle);
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(mask).toHaveCount(0);
+
+  await page.getByRole('button', { name: '导出全部 ZIP' }).click();
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: '仍然导出' }).click();
+  const zip = unzipSync(await readFile(await (await pending).path()));
+  const colors = await page.evaluate(async (images) => {
+    const result = [];
+    for (const bytes of images) {
+      const image = await createImageBitmap(new Blob([Uint8Array.from(bytes)], { type: 'image/png' }));
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0);
+      result.push([...context.getImageData(490, 415, 1, 1).data]);
+      image.close();
+    }
+    return result;
+  }, ['01', '02', '03', '04'].map((number) => Array.from(zip[`${number}-redacted.png`])));
+  expect(colors.slice(0, 2)).toEqual([[0, 0, 0, 255], [0, 0, 0, 255]]);
+  expect(colors[2]).not.toEqual([0, 0, 0, 255]);
+  expect(colors[3]).toEqual(colors[2]);
+});
+
+test('confirms a preview and jumps to the next unreviewed image across the end of the list', async ({ page }) => {
+  await page.goto('/');
+  const rows = page.locator('.file-row');
+  await expect(rows).toHaveCount(demoCount);
+  const check = page.getByRole('checkbox', { name: '标记为已检查' });
+  await rows.nth(2).click();
+  await check.check();
+  await rows.nth(3).click();
+  await check.check();
+  await rows.nth(1).click();
+  await page.getByRole('button', { name: '成品预览' }).click();
+  const next = page.getByRole('button', { name: '确认并继续' });
+  await next.click();
+  await expect(rows.nth(1)).toContainText('已检查');
+  await expect(rows.nth(4)).toHaveAttribute('aria-current', 'true');
+  await next.click();
+  await expect(rows.nth(0)).toHaveAttribute('aria-current', 'true');
+  await next.click();
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', String(demoCount));
+  await expect(page.getByRole('status')).toContainText('已检查全部');
+});
+
+test('keeps preview actions visible on a narrow mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto('/');
+  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+  await page.getByRole('button', { name: '成品预览' }).click();
+  await page.getByRole('checkbox', { name: '标记为已检查' }).check();
+  const footer = await page.locator('.editor-foot').evaluate(({ scrollWidth, clientWidth }) => ({ scrollWidth, clientWidth }));
+  expect(footer.scrollWidth).toBeLessThanOrEqual(footer.clientWidth);
+  await expect(page.getByRole('button', { name: '导出当前 PNG' })).toBeInViewport({ ratio: 1 });
+});
+
+test('keeps the next review action in view on short screens', async ({ page }) => {
+  await page.setViewportSize({ width: 667, height: 375 });
+  await page.goto('/');
+  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+  await page.getByRole('button', { name: '成品预览' }).click();
+  const next = page.getByRole('button', { name: '确认并继续' });
+  await next.click();
+  await expect(page.locator('.file-row').nth(1)).toHaveAttribute('aria-current', 'true');
+  await expect(next).toBeInViewport({ ratio: 1 });
+});
+
+test('pauses export and batch actions while an import is still being read', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('.file-row')).toHaveCount(demoCount);
+  await page.evaluate(() => {
+    const nativeRead = Blob.prototype.arrayBuffer;
+    const gate = new Promise((resolve) => { window.resumeFileRead = resolve; });
+    Blob.prototype.arrayBuffer = async function () {
+      await gate;
+      return nativeRead.call(this);
+    };
+  });
+  await page.locator('#file-input').setInputFiles(resolve('docs/samples/account.png'));
+  await expect(page.getByRole('button', { name: '导出全部 ZIP' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '批量应用遮挡' })).toBeDisabled();
+  await page.evaluate(() => window.resumeFileRead());
+  await expect(page.locator('.file-row')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: '导出全部 ZIP' })).toBeEnabled();
 });

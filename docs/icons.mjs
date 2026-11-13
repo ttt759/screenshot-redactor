@@ -5,6 +5,7 @@ const paths = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
   box: '<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 10h8v4H8z"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 4H6a2 2 0 0 0-2 2v10"/>',
   cursor: '<path d="m5 3 14 10-7 1-3 6L5 3Z"/>',
   hand: '<path d="M8 12V5a1.5 1.5 0 0 1 3 0v6-7a1.5 1.5 0 0 1 3 0v7-5a1.5 1.5 0 0 1 3 0v5-3a1.5 1.5 0 0 1 3 0v7a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.8l-3-4.7a1.7 1.7 0 0 1 2.7-2L8 13"/>',
   undo: '<path d="M9 5 4 10l5 5m-5-5h10a5 5 0 0 1 0 10h-3"/>',
