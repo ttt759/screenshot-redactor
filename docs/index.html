@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="在浏览器里批量遮挡截图中的敏感信息，检查成品并导出原尺寸 PNG。">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>截图脱敏助手</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script defer src="./vendor/fflate.js"></script>
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <header class="page-header">
+    <div class="identity">
+      <span class="brand-icon" id="brand-icon" aria-hidden="true"></span>
+      <div><h1>截图脱敏助手</h1><p>框选敏感信息，检查后批量导出。</p></div>
+    </div>
+    <div class="header-actions">
+      <span class="privacy" data-icon="shield">图片仅在本机处理</span>
+      <button class="button primary" id="export-all" data-icon="download" disabled>导出全部 ZIP</button>
+    </div>
+  </header>
+
+  <main class="workspace" aria-label="截图编辑工作区">
+    <aside class="sidebar" aria-label="截图列表">
+      <div class="sidebar-head"><h2>截图 <span id="file-count">0</span></h2><button id="import" class="button subtle compact" data-icon="plus">添加</button></div>
+      <input id="file-input" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" multiple hidden>
+      <div id="file-list" class="file-list"></div>
+      <div class="sidebar-foot">
+        <div class="progress-label"><span>检查进度</span><strong id="progress-text">0 / 0</strong></div>
+        <progress id="progress" aria-label="已检查图片" aria-valuenow="0" value="0" max="1"></progress>
+        <button class="upload-zone" id="drop-button">
+          <span data-icon="upload">拖入或粘贴截图</span><small>PNG / JPG · 支持多张</small>
+        </button>
+        <button class="text-button" id="samples" hidden>加载虚构示例</button>
+      </div>
+    </aside>
+
+    <section class="editor" aria-label="图片编辑器">
+      <header class="editor-head">
+        <div class="file-heading"><h2 id="active-name">编辑区</h2><p id="active-detail"></p></div>
+        <div class="segmented" role="group" aria-label="视图">
+          <button id="edit" aria-pressed="true" disabled>编辑</button>
+          <button id="preview-button" aria-pressed="false" disabled>成品预览</button>
+        </div>
+      </header>
+
+      <div class="toolbar" aria-label="编辑工具">
+        <div class="toolset">
+          <button class="button tool" id="draw" data-icon="box" aria-pressed="true" title="画遮挡框 (R)" disabled>画遮挡框</button>
+          <button class="button icon-button" id="select" data-icon="cursor" aria-label="选择遮挡框" aria-pressed="false" title="选择遮挡框 (V)" disabled></button>
+          <button class="button icon-button" id="pan" data-icon="hand" aria-label="平移画布" aria-pressed="false" title="平移画布 (H)" disabled></button>
+          <div class="tool-divider"></div>
+          <button class="button icon-button" id="undo" data-icon="undo" aria-label="撤销" title="撤销 (Ctrl/⌘ + Z)" disabled></button>
+          <button class="button icon-button" id="delete" data-icon="trash" aria-label="删除遮挡" title="删除遮挡 (Delete)" disabled></button>
+        </div>
+        <div class="toolset zoom" aria-label="缩放">
+          <button class="button icon-button" id="zoom-out" data-icon="minus" aria-label="缩小" title="缩小" disabled></button>
+          <span id="zoom-level">—</span>
+          <button class="button icon-button" id="zoom-in" data-icon="plus" aria-label="放大" title="放大" disabled></button>
+          <button class="button compact fit" id="fit" data-icon="expand" title="适应画布" disabled>适应</button>
+        </div>
+      </div>
+
+      <div id="stage" class="stage">
+        <div id="empty" class="empty" hidden><span data-icon="image"></span><h3>添加截图开始编辑</h3><button id="empty-import" class="button subtle" data-icon="plus">选择图片</button></div>
+        <div class="stage-inner" id="stage-inner" hidden>
+          <div id="artboard" class="artboard" data-tool="draw" aria-label="图片画布" tabindex="0">
+            <img id="source" alt="当前截图" draggable="false">
+            <div id="masks" class="masks"></div>
+            <canvas id="preview" aria-label="遮挡后的成品" hidden></canvas>
+          </div>
+        </div>
+        <div id="drop-overlay" class="drop-overlay" hidden><span data-icon="upload">松开以导入截图</span></div>
+      </div>
+
+      <footer class="editor-foot">
+        <div class="review-actions">
+          <label class="review"><input type="checkbox" id="review" disabled><span>标记为已检查</span></label>
+          <button id="next" class="button subtle compact" data-icon="right" disabled>下一张</button>
+        </div>
+        <button class="button subtle compact" id="export-one" data-icon="download" disabled>导出当前 PNG</button>
+      </footer>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <span id="mode-hint">在敏感信息上拖动鼠标，画出黑色遮挡框。</span>
+    <span id="mask-count"></span>
+  </footer>
+  <p id="toast" class="toast" role="status" hidden></p>
+
+  <dialog id="export-dialog" aria-labelledby="dialog-title">
+    <div class="dialog-heading"><h2 id="dialog-title">还有截图待检查</h2><button id="close-dialog" class="button icon-button" data-icon="close" aria-label="关闭" title="关闭"></button></div>
+    <p id="dialog-note"></p>
+    <ul id="unchecked-list"></ul>
+    <div class="dialog-actions"><button class="button subtle" id="force-export">仍然导出</button><button class="button primary" id="start-review">逐张检查</button></div>
+  </dialog>
+</body>
+</html>
