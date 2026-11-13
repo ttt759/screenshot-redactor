@@ -341,3 +341,37 @@ test('pauses export and batch actions while an import is still being read', asyn
   await expect(page.locator('.file-row')).toHaveCount(1);
   await expect(page.getByRole('button', { name: '导出全部 ZIP' })).toBeEnabled();
 });
+
+test('navigates and starts drawing with left-hand shortcuts in edit and preview', async ({ page }) => {
+  await page.goto('/');
+  const rows = page.locator('.file-row');
+  const previous = page.getByRole('button', { name: '上一张', exact: true });
+  const next = page.getByRole('button', { name: '下一张', exact: true });
+  const draw = page.getByRole('button', { name: '画遮挡框', exact: true });
+  const preview = page.getByRole('button', { name: '成品预览' });
+  await expect(rows).toHaveCount(demoCount);
+  await expect(previous).toBeDisabled();
+  await page.keyboard.press('w');
+  await expect(rows.first()).toHaveAttribute('aria-current', 'true');
+  await page.keyboard.press('s');
+  await expect(rows.nth(1)).toHaveAttribute('aria-current', 'true');
+  await preview.click();
+  await page.keyboard.press('s');
+  await expect(rows.nth(2)).toHaveAttribute('aria-current', 'true');
+  await expect(preview).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+  await previous.click();
+  await expect(rows.nth(1)).toHaveAttribute('aria-current', 'true');
+  await next.click();
+  await expect(rows.nth(2)).toHaveAttribute('aria-current', 'true');
+  await page.keyboard.press('r');
+  await expect(draw).toHaveAttribute('aria-pressed', 'true');
+  await rows.last().click();
+  await expect(next).toBeDisabled();
+  await page.keyboard.press('s');
+  await expect(rows.last()).toHaveAttribute('aria-current', 'true');
+  await page.getByRole('button', { name: '导出全部 ZIP' }).click();
+  await page.keyboard.press('w');
+  await page.keyboard.press('Escape');
+  await expect(rows.last()).toHaveAttribute('aria-current', 'true');
+});

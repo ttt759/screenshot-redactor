@@ -169,8 +169,8 @@ function renderEditor() {
   $('batch-hint').textContent = importsPending ? '正在读取截图…' : !sameSizeCount ? '导入同尺寸截图后可批量应用'
     : selected ? `有 ${sameSizeCount} 张其他同尺寸截图` : '先画出或选中一个遮挡框';
   setDisabled('review', !entry);
+  setDisabled('previous', !entry || index === 0);
   setDisabled('next', !entry || index >= entries.length - 1);
-  $('next').hidden = Boolean(entry) && !editing;
   renderReviewControls();
   setDisabled('export-one', !entry || busy || importsPending > 0);
   setDisabled('export-all', !entries.length || busy || importsPending > 0);
@@ -558,6 +558,7 @@ $('review').onchange = (event) => {
   renderRows();
   renderReviewControls();
 };
+$('previous').onclick = () => goTo(index - 1);
 $('next').onclick = () => goTo(index + 1);
 $('confirm-next').onclick = confirmAndContinue;
 $('copy-mask').onclick = openBatchPicker;
@@ -621,17 +622,32 @@ document.addEventListener('drop', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (openDialog() || !active() || view !== 'edit' || gesture) return;
+  if (event.defaultPrevented || event.isComposing || openDialog() || !active() || gesture) return;
   const key = event.key.toLowerCase();
+  const plainKey = !event.ctrlKey && !event.metaKey && !event.altKey;
+  if (plainKey && !event.shiftKey) {
+    if (key === 'w' || key === 's') {
+      event.preventDefault();
+      (key === 'w' ? $('previous') : $('next')).click();
+      return;
+    }
+    if (key === 'r') {
+      event.preventDefault();
+      tool = 'draw';
+      changeView('edit');
+      return;
+    }
+  }
+  if (view !== 'edit') return;
   if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === 'z') {
     event.preventDefault();
     undo();
-  } else if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+  } else if (plainKey) {
     if (key === 'delete' || key === 'backspace') {
       if (selected) event.preventDefault();
       deleteBox();
-    } else if (key === 'r' || key === 'v' || key === 'h') {
-      useTool({ r: 'draw', v: 'select', h: 'pan' }[key]);
+    } else if (key === 'v' || key === 'h') {
+      useTool(key === 'v' ? 'select' : 'pan');
     } else if (selected && ['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key)) {
       event.preventDefault();
       const delta = event.shiftKey ? 10 : 1;

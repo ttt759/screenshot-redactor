@@ -12,6 +12,7 @@ const paths = {
   trash: '<path d="M5 7h14m-9 0V4h4v3m3 0-1 13H8L7 7m3 4v5m4-5v5"/>',
   expand: '<path d="M4 9V4h5m6 0h5v5m0 6v5h-5m-6 0H4v-5"/>',
   right: '<path d="m9 6 6 6-6 6"/>',
+  left: '<path d="m15 6-6 6 6 6"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   image: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-4 3 3 4-5 5 5"/>',
 };
