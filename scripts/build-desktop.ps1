@@ -1,7 +1,9 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $output = Join-Path $root 'release/lightweight/win-unpacked'
-$version = (Get-Content -Raw (Join-Path $root 'package.json') | ConvertFrom-Json).version
+$package = Get-Content -Raw (Join-Path $root 'package.json') | ConvertFrom-Json
+$version = $package.version
+$buildVersion = $package.build.buildVersion
 $sdkVersion = '1.0.4314.35'
 $sdkHash = '90778DEB1B77E36292828B4B5833C9255C27533F40E0DDD55891AE718944EDC4'
 $sdkCache = Join-Path ([IO.Path]::GetTempPath()) "screenshot-redactor-webview2-$sdkVersion"
@@ -36,10 +38,10 @@ try {
 }
 
 $compiler = Join-Path $env:SystemRoot 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
-$metadata = Join-Path $sdkCache "version-$version.cs"
+$metadata = Join-Path $sdkCache "version-$buildVersion.cs"
 @"
-[assembly: System.Reflection.AssemblyVersion("$version.0")]
-[assembly: System.Reflection.AssemblyFileVersion("$version.0")]
+[assembly: System.Reflection.AssemblyVersion("$buildVersion.0")]
+[assembly: System.Reflection.AssemblyFileVersion("$buildVersion.0")]
 "@ | Set-Content -LiteralPath $metadata -Encoding UTF8
 $icon = Join-Path $root 'desktop/icon.ico'
 $manifest = Join-Path $root 'desktop/app.manifest'

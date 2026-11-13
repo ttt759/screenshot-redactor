@@ -29,7 +29,8 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
-          if ($env:RELEASE_TAG -ne "v$version") { throw 'Release tag must match package.json' }
+          $releaseVersion = if ($env:RELEASE_TAG -match '^v\d+\.\d+$') { "$env:RELEASE_TAG.0" } else { $env:RELEASE_TAG }
+          if ($releaseVersion -ne "v$version") { throw 'Release tag must match package.json' }
           $name = "screenshot-redactor-setup-$version-windows-x64.exe"
           $portable = "screenshot-redactor-portable-$version-windows-x64.zip"
           $existing = gh api --paginate "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets" --jq '.[] | select(.state == "uploaded" and .size > 0) | .name'
