@@ -13,7 +13,10 @@ const dialog = $('export-dialog');
 const batchDialog = $('batch-dialog');
 const corners = ['nw', 'ne', 'sw', 'se'];
 const samples = [
-  ['account.png', '01-账号信息.png', [{ id: 'sample-email', x: 446, y: 403, width: 254, height: 28 }]],
+  ['account.png', '01-账号信息.png', [
+    { id: 'sample-email', x: 446, y: 403, width: 254, height: 28 },
+    { id: 'sample-name', x: 378, y: 277, width: 102, height: 40 },
+  ]],
   ['checkout.jpg', '02-付款页面.jpg', []],
   ['receipt.png', '03-付款记录.png', []],
   ['account-team.png', '04-账号信息.png', []],
@@ -32,6 +35,7 @@ let importsPending = 0;
 let queue = Promise.resolve();
 let pendingExport = null;
 let pendingBatch = null;
+let lastBatch = null;
 let toastTimer;
 let dragDepth = 0;
 let previewEntry = null;
@@ -123,10 +127,7 @@ function renderMasks() {
     const display = gesture?.id === box.id && gesture.draft ? gesture.draft : box;
     node.className = draft ? 'mask draft' : 'mask';
     node.dataset.id = box.id;
-    node.style.left = `${display.x / entry.width * 100}%`;
-    node.style.top = `${display.y / entry.height * 100}%`;
-    node.style.width = `${display.width / entry.width * 100}%`;
-    node.style.height = `${display.height / entry.height * 100}%`;
+    positionMask(node, display, entry);
     if (box.id === selected && !draft) {
       node.classList.add('active');
       for (const corner of corners) {
@@ -138,6 +139,13 @@ function renderMasks() {
     }
     return node;
   }));
+}
+
+function positionMask(node, box, entry) {
+  node.style.left = `${box.x / entry.width * 100}%`;
+  node.style.top = `${box.y / entry.height * 100}%`;
+  node.style.width = `${box.width / entry.width * 100}%`;
+  node.style.height = `${box.height / entry.height * 100}%`;
 }
 
 function renderEditor() {
@@ -164,10 +172,14 @@ function renderEditor() {
   setDisabled('pan', !editing);
   setDisabled('undo', !editing || !entry?.history.length);
   setDisabled('delete', !editing || !selected);
-  $('batch-bar').hidden = !editing;
-  setDisabled('copy-mask', !editing || !selected || !sameSizeCount || Boolean(gesture) || importsPending > 0);
+  $('batch-bar').hidden = !editing && !lastBatch;
+  $('copy-mask').hidden = !editing;
+  $('undo-batch').hidden = !lastBatch;
+  setDisabled('undo-batch', Boolean(gesture) || importsPending > 0);
+  setDisabled('copy-mask', !editing || !entry?.boxes.length || !sameSizeCount || Boolean(gesture) || importsPending > 0);
   $('batch-hint').textContent = importsPending ? '正在读取截图…' : !sameSizeCount ? '导入同尺寸截图后可批量应用'
-    : selected ? `有 ${sameSizeCount} 张其他同尺寸截图` : '先画出或选中一个遮挡框';
+    : entry.boxes.length ? `${entry.boxes.length} 个遮挡框 · ${sameSizeCount} 张同尺寸截图` : '先画出要应用的遮挡框';
+  if (!editing && lastBatch) $('batch-hint').textContent = `上次批量应用到 ${lastBatch.length} 张截图`;
   setDisabled('review', !entry);
   setDisabled('previous', !entry || index === 0);
   setDisabled('next', !entry || index >= entries.length - 1);
@@ -237,7 +249,8 @@ function renderReviewControls() {
   const next = $('confirm-next');
   next.hidden = !entry || view !== 'preview';
   if (next.hidden) return;
-  next.lastChild.textContent = entry.checked ? '下一张待检查' : '确认并继续';
+  $('confirm-next-label').textContent = entry.checked ? '下一张待检查' : '确认并继续';
+  next.title = `${$('confirm-next-label').textContent} (E)`;
   next.disabled = entry.checked && entries.every((target) => target.checked);
 }
 
@@ -256,6 +269,20 @@ function confirmAndContinue() {
 }
 
 function renderBatchSelection() {
+  const chosenMasks = [];
+  for (const { box, input, overlay, marker } of pendingBatch.masks) {
+    overlay.classList.toggle('unselected', !input.checked);
+    marker.classList.toggle('unselected', !input.checked);
+    if (input.checked && !chosenMasks.some((item) => sameBox(item, box))) chosenMasks.push(box);
+  }
+  for (const item of pendingBatch.targets) {
+    const { target, input, caption, sizeMatches } = item;
+    item.missing = sizeMatches ? chosenMasks.filter((box) => !target.boxes.some((existing) => sameBox(existing, box))) : [];
+    input.disabled = !item.missing.length;
+    const status = !sizeMatches ? '尺寸不同' : !chosenMasks.length ? '请先选择遮挡框'
+      : !item.missing.length ? '已有相同遮挡框' : `将添加 ${item.missing.length} 个遮挡框`;
+    caption.textContent = `${target.width} × ${target.height} px · ${status}`;
+  }
   const available = pendingBatch.targets.filter(({ input }) => !input.disabled);
   const count = available.filter(({ input }) => input.checked).length;
   const all = $('batch-select-all');
@@ -267,10 +294,46 @@ function renderBatchSelection() {
   setDisabled('apply-batch', !count);
 }
 
+function renderBatchMasks(entry) {
+  const list = $('batch-masks');
+  const map = $('batch-mask-map');
+  const thumb = document.createElement('img');
+  thumb.src = entry.url;
+  thumb.alt = '';
+  map.style.width = `min(100%, ${entry.width / entry.height * 138}px)`;
+  map.replaceChildren(thumb);
+  list.replaceChildren();
+  return entry.boxes.map((box, position) => {
+    const row = document.createElement('li');
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = true;
+    input.addEventListener('change', renderBatchSelection);
+    const name = document.createElement('span');
+    name.textContent = `遮挡框 ${position + 1}`;
+    const size = document.createElement('small');
+    size.textContent = `${box.width} × ${box.height} px`;
+    label.append(input, name, size);
+    row.append(label);
+    list.append(row);
+
+    const overlay = document.createElement('span');
+    overlay.className = 'batch-mask-overlay';
+    positionMask(overlay, box, entry);
+    const marker = document.createElement('span');
+    marker.className = 'mask-marker';
+    marker.textContent = position + 1;
+    marker.style.left = `min(${box.x / entry.width * 100}%, calc(100% - 17px))`;
+    marker.style.top = `min(${box.y / entry.height * 100}%, calc(100% - 17px))`;
+    map.append(overlay, marker);
+    return { box, input, overlay, marker };
+  });
+}
+
 function openBatchPicker() {
   const entry = active();
-  const box = entry?.boxes.find((item) => item.id === selected);
-  if (!box || view !== 'edit' || gesture || importsPending) return;
+  if (!entry?.boxes.length || view !== 'edit' || gesture || importsPending) return;
   $('batch-source').textContent = `来自 ${entry.name} · ${entry.width} × ${entry.height} px`;
   const list = $('batch-targets');
   list.replaceChildren();
@@ -280,8 +343,6 @@ function openBatchPicker() {
     const input = document.createElement('input');
     input.type = 'checkbox';
     const sizeMatches = sameSize(entry, target);
-    const alreadyCovered = target.boxes.some((item) => sameBox(item, box));
-    input.disabled = !sizeMatches || alreadyCovered;
     input.addEventListener('change', renderBatchSelection);
     const thumb = document.createElement('img');
     thumb.className = 'thumb';
@@ -294,30 +355,54 @@ function openBatchPicker() {
     name.textContent = target.name;
     name.title = target.name;
     const caption = document.createElement('small');
-    caption.textContent = `${target.width} × ${target.height} px · ${!sizeMatches ? '尺寸不同' : alreadyCovered ? '已有相同遮挡框' : target.checked ? '已检查' : '待检查'}`;
     details.append(name, caption);
     label.append(input, thumb, details);
     row.append(label);
     list.append(row);
-    return { target, input };
+    return { target, input, caption, sizeMatches };
   });
-  pendingBatch = { box, targets };
+  pendingBatch = { masks: renderBatchMasks(entry), targets };
   renderBatchSelection();
   batchDialog.showModal();
-  ($('batch-select-all').disabled ? $('close-batch') : $('batch-select-all')).focus();
+  $('close-batch').focus({ preventScroll: true });
 }
 
 function applyBatch() {
-  const { box, targets } = pendingBatch;
-  const chosen = targets.filter(({ input }) => input.checked && !input.disabled);
+  const chosen = pendingBatch.targets.filter(({ input }) => input.checked && !input.disabled);
   if (!chosen.length) return;
-  for (const { target } of chosen) {
-    replaceBoxes(target, [...target.boxes, { ...box, id: crypto.randomUUID() }]);
-  }
+  lastBatch = chosen.map(({ target, missing }) => {
+    const copies = missing.map((box) => ({ ...box, id: crypto.randomUUID() }));
+    replaceBoxes(target, [...target.boxes, ...copies]);
+    return { target, ids: new Set(copies.map((box) => box.id)) };
+  });
   batchDialog.close();
   renderRows();
   renderEditor();
   announce(`已应用到 ${chosen.length} 张截图，请逐张预览检查。`);
+}
+
+function undoBatch() {
+  if (!lastBatch || gesture || importsPending) return;
+  let changed = 0;
+  for (const { target, ids } of lastBatch) {
+    const withoutCopies = (boxes) => boxes.some((box) => ids.has(box.id))
+      ? boxes.filter((box) => !ids.has(box.id)) : boxes;
+    const remaining = withoutCopies(target.boxes);
+    // Strip the copied boxes from later undo snapshots so they cannot reappear.
+    target.history = target.history.map(withoutCopies).filter((boxes, position, history) => {
+      const after = history[position + 1] ?? remaining;
+      return boxes.length !== after.length || boxes.some((box, index) => box.id !== after[index].id || !sameBox(box, after[index]));
+    });
+    if (target.boxes === remaining) continue;
+    target.boxes = remaining;
+    target.checked = false;
+    if (target === active() && ids.has(selected)) selected = null;
+    changed++;
+  }
+  lastBatch = null;
+  renderRows();
+  renderEditor();
+  announce(changed ? `已撤销 ${changed} 张截图上的批量遮挡，请重新检查。` : '已撤销最近一次批量应用。');
 }
 
 function undo() {
@@ -471,7 +556,10 @@ function addFiles(files) {
     if (imported.length) {
       const modal = openDialog();
       if (modal) await new Promise((resolve) => modal.addEventListener('close', resolve, { once: true }));
-      if (entries.every((entry) => entry.demo)) entries = [];
+      if (entries.every((entry) => entry.demo)) {
+        entries = [];
+        lastBatch = null;
+      }
       const firstNew = entries.length;
       entries.push(...imported);
       tool = 'draw';
@@ -562,6 +650,7 @@ $('previous').onclick = () => goTo(index - 1);
 $('next').onclick = () => goTo(index + 1);
 $('confirm-next').onclick = confirmAndContinue;
 $('copy-mask').onclick = openBatchPicker;
+$('undo-batch').onclick = undoBatch;
 $('close-batch').onclick = $('cancel-batch').onclick = () => batchDialog.close();
 $('batch-select-all').onchange = (event) => {
   for (const { input } of pendingBatch.targets) {
@@ -635,6 +724,11 @@ document.addEventListener('keydown', (event) => {
       event.preventDefault();
       tool = 'draw';
       changeView('edit');
+      return;
+    }
+    if (key === 'e' && view === 'preview') {
+      event.preventDefault();
+      if (!event.repeat) $('confirm-next').click();
       return;
     }
   }

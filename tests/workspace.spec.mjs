@@ -375,3 +375,84 @@ test('navigates and starts drawing with left-hand shortcuts in edit and preview'
   await page.keyboard.press('Escape');
   await expect(rows.last()).toHaveAttribute('aria-current', 'true');
 });
+
+test('applies multiple chosen masks to nine screenshots and undoes the batch while preserving independent edits', async ({ page }) => {
+  await page.goto('/');
+  const original = await readFile(resolve('docs/samples/account.png'));
+  await page.locator('#file-input').setInputFiles(Array.from({ length: 10 }, (_, index) => ({
+    name: `screen-${index + 1}.png`, mimeType: 'image/png', buffer: original,
+  })));
+  const rows = page.locator('.file-row');
+  const masks = page.locator('.mask');
+  const draw = async (left, top, right, bottom) => {
+    await page.keyboard.press('r');
+    const bounds = await page.locator('#artboard').boundingBox();
+    await drag(page, imagePoint(bounds, 1120, 700, left, top), imagePoint(bounds, 1120, 700, right, bottom));
+  };
+  await expect(rows).toHaveCount(10);
+  await rows.nth(1).click();
+  await draw(446, 403, 700, 431);
+  await page.getByRole('checkbox', { name: '标记为已检查' }).check();
+  await rows.first().click();
+  await draw(446, 403, 700, 431);
+  await draw(378, 277, 480, 317);
+  await draw(440, 475, 530, 510);
+  await expect(masks).toHaveCount(3);
+  const open = page.getByRole('button', { name: '批量应用遮挡' });
+  await open.click();
+  const picker = page.getByRole('dialog', { name: '批量应用遮挡框' });
+  await picker.getByRole('checkbox', { name: '全选可应用截图' }).check();
+  const maskChoices = await picker.getByRole('list', { name: '遮挡框' }).getByRole('checkbox').all();
+  for (const choice of maskChoices) await choice.uncheck();
+  await expect(picker.getByRole('button', { name: '应用到 0 张' })).toBeDisabled();
+  await maskChoices[0].check();
+  await maskChoices[1].check();
+  await picker.getByRole('button', { name: '应用到 9 张' }).click();
+  await expect(rows.first()).toContainText('3 处遮挡');
+  for (const row of (await rows.all()).slice(1)) await expect(row).toContainText('待检查 · 2 处遮挡');
+
+  const readPreview = async (points) => {
+    await page.getByRole('button', { name: '成品预览' }).click();
+    return page.locator('#preview').evaluate((canvas, coords) => coords.map(([x, y]) =>
+      [...canvas.getContext('2d').getImageData(x, y, 1, 1).data]), points);
+  };
+  await rows.last().click();
+  const pixels = await readPreview([[490, 415], [400, 300], [460, 491]]);
+  expect(pixels.slice(0, 2)).toEqual([[0, 0, 0, 255], [0, 0, 0, 255]]);
+  expect(pixels[2]).not.toEqual([0, 0, 0, 255]);
+
+  await rows.nth(1).click();
+  await draw(80, 500, 175, 540);
+  await masks.nth(1).click();
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect(masks).toHaveCount(3);
+  await page.getByRole('checkbox', { name: '标记为已检查' }).check();
+  await page.getByRole('button', { name: '撤销最近一次批量应用' }).click();
+  await expect(rows.nth(1)).toContainText('待检查 · 2 处遮挡');
+  await expect(rows.last()).not.toContainText('处遮挡');
+  await expect(masks).toHaveCount(2);
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(masks).toHaveCount(1);
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(masks).toHaveCount(0);
+});
+
+test('E confirms one preview per keypress and skips checked images', async ({ page }) => {
+  await page.goto('/');
+  const rows = page.locator('.file-row');
+  await expect(rows).toHaveCount(demoCount);
+  await page.keyboard.press('e');
+  await expect(rows.first()).toContainText('待检查');
+  await rows.nth(1).click();
+  await page.getByRole('checkbox', { name: '标记为已检查' }).check();
+  await rows.first().click();
+  await page.getByRole('button', { name: '成品预览' }).click();
+  await page.keyboard.down('e');
+  await page.keyboard.down('e');
+  await page.keyboard.up('e');
+  await expect(rows.first()).toContainText('已检查');
+  await expect(rows.nth(2)).toHaveAttribute('aria-current', 'true');
+  await expect(rows.nth(2)).toContainText('待检查');
+  await page.keyboard.press('e');
+  await expect(rows.nth(3)).toHaveAttribute('aria-current', 'true');
+});
