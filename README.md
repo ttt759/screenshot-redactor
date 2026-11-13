@@ -2,7 +2,7 @@
 
 把教程截图中的邮箱、订单号和二维码遮住，逐张检查后按顺序导出。图片只在浏览器里处理，无需注册或上传。
 
-**[打开在线演示](https://ttt759.github.io/screenshot-redactor/)** · [查看 v0.2.0](https://github.com/ttt759/screenshot-redactor/releases/tag/v0.2.0)
+**[打开在线演示](https://ttt759.github.io/screenshot-redactor/)** · [下载最新版本](https://github.com/ttt759/screenshot-redactor/releases/latest)
 
 ![截图脱敏助手操作演示，将同一个遮挡框应用到两张截图，逐张检查并导出 ZIP](./demo.gif)
 
