@@ -12,6 +12,7 @@ jobs:
       contents: write
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_ID: ${{ github.event.release.id }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -30,7 +31,7 @@ jobs:
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           if ($env:RELEASE_TAG -ne "v$version") { throw 'Release tag must match package.json' }
           $name = "screenshot-redactor-setup-$version-windows-x64.exe"
-          $existing = gh release view $env:RELEASE_TAG --json assets --jq '.assets[].name'
+          $existing = gh api --paginate "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets" --jq '.[] | select(.state == "uploaded" and .size > 0) | .name'
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           "name=$name" >> $env:GITHUB_OUTPUT
           $present = ($existing -contains $name).ToString().ToLowerInvariant()
@@ -49,4 +50,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           INSTALLER_NAME: ${{ steps.asset.outputs.name }}
         shell: pwsh
-        run: gh release upload $env:RELEASE_TAG "release/$env:INSTALLER_NAME"
+        run: |
+          $incomplete = gh api --paginate "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets" --jq '.[] | select(.state == "starter") | .name'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if ($incomplete -contains $env:INSTALLER_NAME) {
+            gh release delete-asset $env:RELEASE_TAG $env:INSTALLER_NAME --yes
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          gh release upload $env:RELEASE_TAG "release/$env:INSTALLER_NAME"
