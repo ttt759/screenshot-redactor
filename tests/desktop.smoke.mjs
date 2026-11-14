@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -15,7 +15,14 @@ const { port } = server.address();
 await new Promise((done) => server.close(done));
 const endpoint = `http://127.0.0.1:${port}`;
 const output = await mkdtemp(resolve(tmpdir(), 'redactor-smoke-'));
-const app = spawn(executable, [], { env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` } });
+const testProfile = resolve(output, 'profile');
+const captureFolder = resolve(testProfile, 'ScreenshotRedactor', 'Captures');
+await mkdir(captureFolder, { recursive: true });
+const sample = await readFile(resolve('docs/samples/account.png'));
+for (let i = 0; i < 30; i++) {
+  await writeFile(resolve(captureFolder, `20261114-120000-${String(i).padStart(3, '0')}-aabbccdd.png`), sample);
+}
+const app = spawn(executable, [], { env: { ...process.env, SCREENSHOT_REDACTOR_TEST_PROFILE: testProfile, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` } });
 const exited = new Promise((done) => app.once('close', done));
 let browser;
 try {
@@ -38,6 +45,14 @@ try {
   assert.equal(page.url(), 'https://screenshot-redactor.local/index.html');
   assert.deepEqual(await page.evaluate(() => [isSecureContext, typeof window.require, typeof crypto.randomUUID]), [true, 'undefined', 'function']);
   assert.equal(await page.evaluate(async () => (await fetch('/package.json')).status), 404);
+  await page.getByRole('button', { name: '截图剪贴板' }).click();
+  const history = page.getByRole('dialog', { name: '截图剪贴板' });
+  await history.getByRole('checkbox').nth(29).waitFor({ state: 'attached' });
+  assert.equal(await history.getByRole('checkbox').count(), 30);
+  await history.getByRole('checkbox').first().check();
+  await history.getByRole('button', { name: '导入所选截图' }).click();
+  await page.locator('.file-row').filter({ hasText: '截图-20261114-' }).waitFor();
+  await page.getByRole('button', { name: '移除当前截图' }).click();
 
   const stage = await page.locator('#stage').boundingBox();
   const drag = await context.newCDPSession(page);
@@ -93,7 +108,7 @@ try {
   const zip = unzipSync(data);
   assert.deepEqual(Object.keys(zip), ['01-redacted.png', '02-redacted.png']);
   assert.deepEqual(errors, []);
-  console.log('Desktop smoke passed: empty startup, original pixel size, import, edit, review, and ZIP export.');
+  console.log('Desktop smoke passed: 30 local captures, history import, drag import, editing, and ZIP export.');
 } finally {
   await browser?.close();
   if (app.exitCode === null) {

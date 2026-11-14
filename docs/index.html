@@ -19,6 +19,10 @@
     </div>
     <div class="header-actions">
       <span class="privacy" data-icon="shield">图片仅在本机处理</span>
+      <div id="capture-tools" class="capture-tools" hidden>
+        <button class="button icon-button" id="capture-screen" data-icon="expand" aria-label="区域截屏" title="区域截屏（Ctrl + Shift + F9）"></button>
+        <button class="button subtle compact" id="open-history" title="截图剪贴板（Ctrl + Shift + F10）">截图剪贴板</button>
+      </div>
       <button class="button subtle review-start" id="review-workspace" data-icon="check" hidden>开始检查</button>
       <button class="button primary" id="export-all" data-icon="download" disabled>导出全部 ZIP</button>
     </div>
@@ -53,6 +57,9 @@
       <div id="toolbar" class="toolbar" aria-label="编辑工具" hidden>
         <div class="toolset" id="drawing-tools">
           <button class="button tool" id="draw" data-icon="box" aria-pressed="true" aria-keyshortcuts="R" title="画遮挡框 (R)" disabled>画遮挡框<kbd aria-hidden="true">R</kbd></button>
+          <select id="mask-style" aria-label="遮挡样式" title="设置新遮挡框或已选遮挡框的样式">
+            <option value="black">纯黑</option><option value="white">纯白</option><option value="gray">深灰</option><option value="mosaic">马赛克</option>
+          </select>
           <button class="button icon-button" id="select" data-icon="cursor" aria-label="选择遮挡框" aria-pressed="false" title="选择遮挡框 (V)" disabled></button>
           <button class="button icon-button" id="pan" data-icon="hand" aria-label="平移画布" aria-pressed="false" title="平移画布 (H)，按住空格可临时平移" disabled></button>
           <div class="tool-divider"></div>
@@ -118,6 +125,19 @@
     <p id="dialog-note"></p>
     <ul id="unchecked-list"></ul>
     <div class="dialog-actions"><button class="button subtle" id="force-export">仍然导出</button><button class="button primary" id="start-review">逐张检查</button></div>
+  </dialog>
+
+  <dialog id="history-dialog" aria-labelledby="history-title">
+    <div class="dialog-heading"><h2 id="history-title">截图剪贴板</h2><button id="close-history" class="button icon-button" data-icon="close" aria-label="关闭"></button></div>
+    <p id="capture-status" role="status"></p>
+    <div id="capture-list" class="capture-list"></div>
+    <div class="dialog-actions">
+      <button class="button subtle" id="clear-captures" disabled>清空历史</button>
+      <button class="button primary" id="import-captures" disabled>导入所选截图</button>
+    </div>
+    <div id="confirm-clear-captures" class="dialog-actions" hidden>
+      <span>清空已保存的截屏？</span><button class="button subtle" id="cancel-clear-captures">取消</button><button class="button primary" id="apply-clear-captures">确认清空</button>
+    </div>
   </dialog>
 
   <dialog id="remove-dialog" aria-labelledby="remove-title" aria-describedby="remove-note">

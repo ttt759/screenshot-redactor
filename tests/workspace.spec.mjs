@@ -6,6 +6,26 @@ import { unzipSync } from 'fflate';
 const assets = ['account.png', 'checkout.jpg', 'receipt.png'];
 const demoCount = 5;
 
+test('changes a selected mask style and flattens opaque color or mosaic into the preview', async ({ page }) => {
+  await openSamples(page);
+  const style = page.getByRole('combobox', { name: '遮挡样式' });
+  await style.selectOption('white');
+  await page.getByRole('button', { name: '成品预览' }).click();
+  const preview = page.locator('#preview');
+  const pixels = (points) => preview.evaluate((canvas, positions) => positions.map(([x, y]) =>
+    [...canvas.getContext('2d').getImageData(x, y, 1, 1).data]), points);
+  expect(await pixels([[470, 412], [415, 300]])).toEqual([[255, 255, 255, 255], [0, 0, 0, 255]]);
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await page.locator('#masks .mask').first().click();
+  await style.selectOption('mosaic');
+  await expect(page.locator('#masks .mask canvas')).toHaveCount(1);
+  await page.getByRole('button', { name: '成品预览' }).click();
+  const samples = await pixels([[470, 412], [471, 412], [415, 300]]);
+  expect(samples[0]).toEqual(samples[1]);
+  expect(samples[0][3]).toBe(255);
+  expect(samples[2]).toEqual([0, 0, 0, 255]);
+});
+
 test('highlights the canvas during a drag and reports individual import failures', async ({ page }) => {
   await page.goto('/');
   const transfer = await page.evaluateHandle(() => {

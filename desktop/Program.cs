@@ -2,7 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -27,7 +32,15 @@ internal sealed class RedactorWindow : Form
     private const string Home = "https://" + Host + "/index.html";
     private readonly string profile = Path.Combine(Path.GetTempPath(), "ScreenshotRedactor-" + Guid.NewGuid().ToString("N"));
     private readonly WebView2 view = new WebView2 { Dock = DockStyle.Fill };
+    private readonly CaptureHistory captureHistory = new CaptureHistory(Path.Combine(
+        Environment.GetEnvironmentVariable("SCREENSHOT_REDACTOR_TEST_PROFILE") ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "ScreenshotRedactor", "Captures"));
     private CoreWebView2Environment environment;
+    private bool captureInProgress;
+    private const int CaptureKey = 1, HistoryKey = 2, HotkeyMessage = 0x0312;
+    private const uint CtrlShiftNoRepeat = 0x4006;
+    [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
+    [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr window, int id);
     private static readonly Dictionary<string, string> Assets = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         { "index.html", "text/html; charset=utf-8" }, { "styles.css", "text/css; charset=utf-8" },
@@ -63,7 +76,14 @@ internal sealed class RedactorWindow : Form
             browser.Settings.AreDefaultContextMenusEnabled = false;
             browser.Settings.IsZoomControlEnabled = false;
             browser.Settings.AreHostObjectsAllowed = false;
-            browser.Settings.IsWebMessageEnabled = false;
+            browser.Settings.IsWebMessageEnabled = true;
+            browser.WebMessageReceived += ReceiveMessage;
+            browser.NavigationCompleted += (s, e) => {
+                if (!e.IsSuccess) return;
+                var capture = RegisterHotKey(Handle, CaptureKey, CtrlShiftNoRepeat, (uint)Keys.F9);
+                var history = RegisterHotKey(Handle, HistoryKey, CtrlShiftNoRepeat, (uint)Keys.F10);
+                if (!capture || !history) Notify("截屏快捷键被占用，仍可使用工具栏按钮。");
+            };
             browser.NewWindowRequested += (s, e) => { e.Handled = true; };
             browser.PermissionRequested += (s, e) => { e.State = CoreWebView2PermissionState.Deny; };
             browser.NavigationStarting += (s, e) => { e.Cancel = e.Uri != Home; };
@@ -89,12 +109,98 @@ internal sealed class RedactorWindow : Form
         }
     }
 
+    private void ReceiveMessage(object sender, CoreWebView2WebMessageReceivedEventArgs args)
+    {
+        if (args.Source != Home) return;
+        string command;
+        try { command = args.TryGetWebMessageAsString(); }
+        catch (ArgumentException) { return; }
+        if (command == "capture") BeginRegionCapture();
+        else if (command == "clear-captures" && !captureInProgress)
+        {
+            try { captureHistory.Clear(); Notify("history-cleared"); }
+            catch (IOException) { Notify("无法清空截图历史，请重试。"); }
+            catch (UnauthorizedAccessException) { Notify("无法清空截图历史，请检查文件权限。"); }
+        }
+    }
+
+    private void Notify(string message)
+    {
+        if (!IsDisposed && view.CoreWebView2 != null && view.CoreWebView2.Source == Home)
+            view.CoreWebView2.PostWebMessageAsString(message);
+    }
+
+    protected override void WndProc(ref Message message)
+    {
+        if (message.Msg == HotkeyMessage && !captureInProgress)
+        {
+            if (message.WParam.ToInt32() == CaptureKey) BeginRegionCapture();
+            else if (message.WParam.ToInt32() == HistoryKey)
+            {
+                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                Activate();
+                Notify("history");
+            }
+        }
+        base.WndProc(ref message);
+    }
+
+    private async void BeginRegionCapture()
+    {
+        if (captureInProgress || IsDisposed) return;
+        captureInProgress = true;
+        var state = WindowState;
+        string feedback = null;
+        try
+        {
+            Hide();
+            await Task.Delay(140);
+            if (IsDisposed) return;
+            var bounds = SystemInformation.VirtualScreen;
+            using (var screen = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppRgb))
+            {
+                using (var graphics = Graphics.FromImage(screen)) graphics.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
+                using (var picker = new RegionCapture(screen, bounds))
+                {
+                    if (picker.ShowDialog() == DialogResult.OK)
+                    {
+                        using (var result = picker.Result) captureHistory.Save(result);
+                        feedback = "captured";
+                    }
+                }
+            }
+        }
+        catch (Exception) { feedback = "无法截屏或保存截图，请重试。"; }
+        finally
+        {
+            captureInProgress = false;
+            if (!IsDisposed)
+            {
+                WindowState = state;
+                Show();
+                if (state != FormWindowState.Minimized) Activate();
+                if (feedback != null) Notify(feedback);
+            }
+        }
+    }
+
     private void ServeLocalAsset(object sender, CoreWebView2WebResourceRequestedEventArgs args)
     {
         Uri url;
         string type;
         if (!Uri.TryCreate(args.Request.Uri, UriKind.Absolute, out url) || url.Scheme != "https" || url.Host != Host ||
-            !url.IsDefaultPort || args.Request.Method != "GET" || !Assets.TryGetValue(url.AbsolutePath.TrimStart('/'), out type))
+            !url.IsDefaultPort || args.Request.Method != "GET")
+        {
+            args.Response = environment.CreateWebResourceResponse(null, 404, "Not Found", "");
+            return;
+        }
+        var route = url.AbsolutePath.TrimStart('/');
+        if (route == "capture-history" || route.StartsWith("capture/", StringComparison.Ordinal))
+        {
+            ServeCapture(args, route);
+            return;
+        }
+        if (!Assets.TryGetValue(route, out type))
         {
             args.Response = environment.CreateWebResourceResponse(null, 404, "Not Found", "");
             return;
@@ -109,8 +215,36 @@ internal sealed class RedactorWindow : Form
             "Content-Type: " + type + "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff");
     }
 
+    private void ServeCapture(CoreWebView2WebResourceRequestedEventArgs args, string route)
+    {
+        try
+        {
+            if (route == "capture-history")
+            {
+                // Names contain only digits, ASCII separators and hex, so they are safe JSON strings.
+                var names = captureHistory.List().Take(CaptureHistory.Capacity).Select(name => "\"" + name + "\"");
+                var json = "[" + string.Join(",", names) + "]";
+                args.Response = environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(json)), 200,
+                    "OK", "Content-Type: application/json; charset=utf-8\r\nCache-Control: no-store");
+                return;
+            }
+            var namePart = route.Substring("capture/".Length);
+            if (CaptureHistory.IsCapture(namePart))
+            {
+                args.Response = environment.CreateWebResourceResponse(new MemoryStream(captureHistory.Read(namePart)), 200,
+                    "OK", "Content-Type: image/png\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff");
+                return;
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        args.Response = environment.CreateWebResourceResponse(null, 404, "Not Found", "");
+    }
+
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
+        UnregisterHotKey(Handle, CaptureKey);
+        UnregisterHotKey(Handle, HistoryKey);
         var processId = view.CoreWebView2 == null ? 0 : (int)view.CoreWebView2.BrowserProcessId;
         view.Dispose();
         if (processId != 0)

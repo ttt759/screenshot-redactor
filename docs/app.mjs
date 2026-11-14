@@ -1,6 +1,6 @@
 import './icons.mjs';
 import { clamp, moveBox, outputName, pixelBounds, resizeBox } from './geometry.mjs';
-import { drawFlattened, exportImages, loadFile, loadImage } from './images.mjs';
+import { drawFlattened, exportImages, loadFile, loadImage, maskColors, mosaicTile } from './images.mjs';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -12,6 +12,8 @@ const source = $('source');
 const dialog = $('export-dialog');
 const batchDialog = $('batch-dialog');
 const removeDialog = $('remove-dialog');
+const historyDialog = $('history-dialog');
+const desktop = globalThis.chrome?.webview;
 const corners = ['nw', 'ne', 'sw', 'se'];
 const samples = [
   ['account.png', '01-账号信息.png', [
@@ -27,6 +29,7 @@ const samples = [
 let entries = [];
 let index = 0;
 let tool = 'draw';
+let maskStyle = 'black';
 let view = 'edit';
 let selected = null;
 let zoom = null;
@@ -45,9 +48,10 @@ let previewBoxes = null;
 
 const active = () => entries[index];
 const setDisabled = (id, disabled) => { $(id).disabled = disabled; };
-const openDialog = () => [dialog, batchDialog, removeDialog].find((item) => item.open);
+const openDialog = () => [dialog, batchDialog, removeDialog, historyDialog].find((item) => item.open);
 const sameSize = (first, second) => first.width === second.width && first.height === second.height;
-const sameBox = (first, second) => ['x', 'y', 'width', 'height'].every((key) => first[key] === second[key]);
+const sameBox = (first, second) => (first.style ?? 'black') === (second.style ?? 'black') &&
+  ['x', 'y', 'width', 'height'].every((key) => first[key] === second[key]);
 
 function makeEntry(name, { image, url }, demo = false, boxes = []) {
   return { name, image, url, demo, width: image.naturalWidth, height: image.naturalHeight, boxes, history: [], checked: false };
@@ -134,6 +138,7 @@ function renderMasks() {
     return;
   }
   const boxes = gesture?.mode === 'draw' && gesture.draft ? [...entry.boxes, gesture.draft] : entry.boxes;
+  // Match the export's stacking while keeping file order for keyboard and batch operations.
   masks.replaceChildren(...boxes.map((box) => {
     const node = document.createElement('div');
     const draft = gesture?.mode === 'draw' && box === gesture.draft;
@@ -141,6 +146,12 @@ function renderMasks() {
     node.className = draft ? 'mask draft' : 'mask';
     node.dataset.id = box.id;
     positionMask(node, display, entry);
+    if (display.style === 'mosaic') {
+      node.classList.add('mosaic');
+      node.append(mosaicTile(entry.image, display));
+    } else {
+      node.style.backgroundColor = maskColors[display.style] ?? maskColors.black;
+    }
     if (box.id === selected && !draft) {
       node.classList.add('active');
       for (const corner of corners) {
@@ -189,6 +200,8 @@ function renderEditor() {
   setDisabled('edit', !entry);
   setDisabled('preview-button', !entry);
   setDisabled('draw', !editing);
+  setDisabled('mask-style', !editing || Boolean(gesture));
+  $('mask-style').value = (entry?.boxes.find((box) => box.id === selected)?.style ?? (selected ? 'black' : maskStyle));
   setDisabled('select', !editing);
   setDisabled('pan', !editing);
   setDisabled('undo', !editing || !entry?.history.length);
@@ -385,6 +398,7 @@ function renderBatchMasks(entry) {
     const overlay = document.createElement('span');
     overlay.className = 'batch-mask-overlay';
     positionMask(overlay, box, entry);
+    overlay.style.backgroundColor = maskColors[box.style] ?? maskColors.black;
     const marker = document.createElement('span');
     marker.className = 'mask-marker';
     marker.textContent = position + 1;
@@ -489,6 +503,7 @@ function deleteBox() {
 function useTool(nextTool) {
   if (!active() || view !== 'edit') return;
   tool = nextTool;
+  if (tool === 'draw') selected = null;
   renderEditor();
 }
 
@@ -575,7 +590,7 @@ function updateGesture(event) {
   if (gesture.mode === 'draw') {
     const box = pixelBounds(gesture.start, end, entry);
     const dragged = Math.hypot(event.clientX - gesture.screenX, event.clientY - gesture.screenY) >= 3;
-    gesture.draft = dragged && box.width && box.height ? { ...box, id: gesture.id } : null;
+    gesture.draft = dragged && box.width && box.height ? { ...box, id: gesture.id, style: maskStyle } : null;
   } else {
     gesture.draft = gesture.mode === 'move' ? moveBox(gesture.original, dx, dy, entry)
       : resizeBox(gesture.original, gesture.handle, dx, dy, entry);
@@ -757,6 +772,119 @@ $('samples').onclick = addSamples;
 $('edit').onclick = () => changeView('edit');
 $('preview-button').onclick = () => changeView('preview');
 $('draw').onclick = () => useTool('draw');
+$('mask-style').onchange = (event) => {
+  const style = event.target.value;
+  maskStyle = style;
+  const entry = active();
+  const old = entry?.boxes.find((box) => box.id === selected);
+  if (old && (old.style ?? 'black') !== style) {
+    editBoxes(entry.boxes.map((box) => box === old ? { ...box, style } : box));
+  }
+  if (style === 'mosaic') announce('马赛克可能保留可辨认轮廓，敏感信息建议用纯色遮挡。');
+};
+
+if (desktop) {
+  $('capture-tools').hidden = false;
+  $('capture-screen').onclick = () => desktop.postMessage('capture');
+  $('open-history').onclick = openCaptureHistory;
+  historyDialog.addEventListener('close', () => { if (!historyDialog.open) historyLoad++; });
+  $('close-history').onclick = () => historyDialog.close();
+  $('import-captures').onclick = importCaptures;
+  $('clear-captures').onclick = () => {
+    $('confirm-clear-captures').hidden = false;
+    $('cancel-clear-captures').focus();
+  };
+  $('cancel-clear-captures').onclick = () => {
+    $('confirm-clear-captures').hidden = true;
+    $('clear-captures').focus();
+  };
+  $('apply-clear-captures').onclick = () => {
+    $('confirm-clear-captures').hidden = true;
+    desktop.postMessage('clear-captures');
+  };
+  desktop.addEventListener('message', ({ data }) => {
+    if (data === 'history') openCaptureHistory();
+    else if (data === 'captured') {
+      announce('截图已存入剪贴板历史');
+      if (historyDialog.open) loadCaptureHistory();
+    } else if (data === 'history-cleared') {
+      if (historyDialog.open) loadCaptureHistory();
+    } else if (typeof data === 'string') {
+      if (historyDialog.open) $('capture-status').textContent = data;
+      else announce(data);
+    }
+  });
+}
+
+let historyLoad = 0;
+async function openCaptureHistory() {
+  if (openDialog()) return;
+  historyDialog.showModal();
+  await loadCaptureHistory();
+}
+
+async function loadCaptureHistory() {
+  const revision = ++historyLoad;
+  const list = $('capture-list');
+  list.replaceChildren();
+  $('capture-status').textContent = '正在读取截图…';
+  $('confirm-clear-captures').hidden = true;
+  setDisabled('clear-captures', true);
+  setDisabled('import-captures', true);
+  try {
+    const response = await fetch('./capture-history');
+    if (!response.ok) throw new Error('无法读取截屏历史');
+    const names = await response.json();
+    if (revision !== historyLoad || !historyDialog.open) return;
+    setDisabled('clear-captures', !names.length);
+    $('capture-status').textContent = names.length ? '' : '还没有截图。按 Ctrl + Shift + F9 开始截屏。';
+    list.replaceChildren(...names.map((name) => {
+      const row = document.createElement('label');
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.value = name;
+      check.onchange = () => setDisabled('import-captures', !list.querySelector(':checked'));
+      const thumb = document.createElement('img');
+      thumb.alt = '';
+      thumb.loading = 'lazy';
+      thumb.src = `./capture/${name}`;
+      const label = document.createElement('span');
+      label.textContent = `${name.slice(4, 6)}-${name.slice(6, 8)} ${name.slice(9, 11)}:${name.slice(11, 13)}:${name.slice(13, 15)}`;
+      row.append(check, thumb, label);
+      return row;
+    }));
+  } catch (error) {
+    if (revision === historyLoad) $('capture-status').textContent = '无法读取截屏历史。';
+  }
+}
+
+async function importCaptures() {
+  const revision = historyLoad;
+  if ($('import-captures').disabled) return;
+  const inputs = Array.from($('capture-list').querySelectorAll('input'));
+  const names = inputs.filter((input) => input.checked).map((input) => input.value);
+  setDisabled('import-captures', true);
+  setDisabled('clear-captures', true);
+  for (const input of inputs) input.disabled = true;
+  try {
+    const files = await Promise.all(names.map(async (name) => {
+      const response = await fetch(`./capture/${name}`);
+      if (!response.ok) throw new Error('截图已移出历史');
+      const blob = await response.blob();
+      return new File([blob], `截图-${name}`, { type: 'image/png' });
+    }));
+    if (historyDialog.open && revision === historyLoad) {
+      historyDialog.close();
+      addFiles(files);
+    }
+  } catch {
+    if (!historyDialog.open || revision !== historyLoad) return;
+    $('capture-status').textContent = '部分截图已移出历史，请重新打开后选择。';
+    setDisabled('import-captures', false);
+    setDisabled('clear-captures', false);
+    for (const input of inputs) input.disabled = false;
+  }
+}
 $('select').onclick = () => useTool('select');
 $('pan').onclick = () => useTool('pan');
 $('undo').onclick = undo;
@@ -904,6 +1032,7 @@ document.addEventListener('keydown', (event) => {
     if (key === 'r') {
       event.preventDefault();
       tool = 'draw';
+      selected = null;
       changeView('edit');
       return;
     }
@@ -917,7 +1046,7 @@ document.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === 'z') {
     event.preventDefault();
     undo();
-  } else if (plainKey) {
+  } else if (plainKey && !event.target.closest('select')) {
     if (key === 'delete' || key === 'backspace') {
       if (selected) event.preventDefault();
       deleteBox();

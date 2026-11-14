@@ -1,5 +1,17 @@
 import { outputName } from './geometry.mjs';
 
+export const maskColors = Object.freeze({ black: '#000', white: '#fff', gray: '#484b52' });
+
+export function mosaicTile(image, box) {
+  const tile = document.createElement('canvas');
+  tile.width = Math.max(1, Math.floor(box.width / 16));
+  tile.height = Math.max(1, Math.floor(box.height / 16));
+  const sample = tile.getContext('2d', { alpha: false });
+  sample.imageSmoothingQuality = 'high';
+  sample.drawImage(image, box.x, box.y, box.width, box.height, 0, 0, tile.width, tile.height);
+  return tile;
+}
+
 export function loadImage(url) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -43,8 +55,17 @@ export function drawFlattened(canvas, entry) {
   const context = canvas.getContext('2d');
   if (!context) throw new Error('无法创建画布');
   context.drawImage(entry.image, 0, 0);
-  context.fillStyle = '#000';
-  for (const box of entry.boxes) context.fillRect(box.x, box.y, box.width, box.height);
+  // Apply mosaic first so a solid mask always wins in overlapping regions.
+  for (const box of entry.boxes) {
+    if (box.style !== 'mosaic') continue;
+    context.imageSmoothingEnabled = false;
+    context.drawImage(mosaicTile(entry.image, box), box.x, box.y, box.width, box.height);
+  }
+  for (const box of entry.boxes) {
+    if (box.style === 'mosaic') continue;
+    context.fillStyle = maskColors[box.style] ?? maskColors.black;
+    context.fillRect(box.x, box.y, box.width, box.height);
+  }
 }
 
 async function encodePNG(entry) {

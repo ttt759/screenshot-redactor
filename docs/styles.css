@@ -30,6 +30,7 @@ button, h1, h2, h3, p { margin: 0; }
 .brand-icon { width: 48px; height: 48px; flex: none; display: block; background: url('./favicon.svg') center / contain; }
 .identity h1 { font-size: 24px; font-weight: 750; line-height: 1.3; }
 .header-actions { display: flex; align-items: center; gap: 20px; }
+.capture-tools { display: flex; align-items: center; gap: 3px; }
 .privacy { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .privacy .icon { color: #547568; width: 15px; height: 15px; }
 
@@ -78,8 +79,9 @@ progress::-moz-progress-bar { background: var(--accent); }
 .segmented { display: flex; flex: none; background: #f1eef3; border-radius: 9px; padding: 3px; gap: 2px; }
 .segmented button { border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); padding: 6px 11px; font-size: 12px; white-space: nowrap; }
 .segmented button[aria-pressed="true"] { color: var(--ink); background: var(--white); border-color: #e9e5ed; font-weight: 680; box-shadow: 0 1px 2px #2822330b; }
-.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--line); }
+.toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 5px 10px; padding: 7px 14px; border-bottom: 1px solid var(--line); }
 .toolset { display: flex; align-items: center; gap: 4px; }
+#mask-style { max-width: 84px; min-height: 30px; padding: 0 4px; border: 1px solid var(--line); border-radius: 7px; background: var(--white); color: var(--ink); font: inherit; font-size: 12px; }
 .tool-divider { width: 1px; height: 20px; background: var(--line); margin: 0 3px; }
 .zoom { gap: 1px; margin-left: auto; }
 #actual-size { display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -102,6 +104,9 @@ progress::-moz-progress-bar { background: var(--accent); }
 .artboard > img, .artboard > canvas, .masks { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .artboard img { pointer-events: none; }
 .mask { position: absolute; background: #000; cursor: move; }
+.mask.mosaic { z-index: -1; }
+.masks { isolation: isolate; }
+.mask canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; pointer-events: none; }
 .mask.active { outline: 2px solid #e4769a; }
 .mask.draft { pointer-events: none; outline: 1px solid #e4769a; }
 .handle { width: 16px; height: 16px; position: absolute; display: grid; place-items: center; transform: translate(-50%, -50%); }
@@ -144,6 +149,11 @@ dialog p { margin: 5px 0 14px; color: var(--muted); }
 dialog ul { padding: 10px 12px; list-style: none; margin: 0 0 20px; max-height: 34vh; overflow: auto; border-radius: 8px; background: #f6f4f7; }
 dialog li { padding: 5px 0; overflow-wrap: anywhere; font-size: 13px; }
 .dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+#history-dialog { width: min(640px, calc(100vw - 32px)); }
+.capture-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; max-height: 52dvh; overflow: auto; margin-bottom: 12px; }
+.capture-list label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 5px; cursor: pointer; border: 1px solid var(--line); border-radius: 8px; padding: 6px; font-size: 11px; }
+.capture-list img { grid-column: 1 / -1; grid-row: 1; width: 100%; height: 80px; object-fit: contain; background: #f2eff4; }
+.capture-list label:has(:checked) { border-color: #e5bacb; background: var(--accent-soft); }
 #remove-note { overflow-wrap: anywhere; }
 .unchecked-image { display: flex; align-items: center; justify-content: space-between; gap: 9px; width: 100%; padding: 6px 5px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); text-align: left; overflow-wrap: anywhere; }
 .unchecked-image::after { content: '›'; color: var(--accent); font-size: 17px; }
@@ -235,6 +245,9 @@ button:is(.button, .file-row, .segmented button, .unchecked-image):not(:disabled
   .file-heading h2 { font-size: 13px; }
   .segmented button { padding: 5px 6px; }
   .toolbar { padding: 4px; gap: 2px; }
+  #drawing-tools { flex-wrap: wrap; }
+  #mask-style { min-height: 27px; font-size: 11px; }
+  body:has(.capture-tools:not([hidden])) .page-header { flex-wrap: wrap; }
   .batch-bar { padding: 4px 8px; font-size: 11px; }
   .batch-bar .button { min-height: 30px; }
   .toolset { gap: 0; }
