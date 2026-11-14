@@ -1,6 +1,6 @@
 import './icons.mjs';
 import { clamp, moveBox, outputName, pixelBounds, resizeBox } from './geometry.mjs';
-import { drawFlattened, exportImages, loadFile, loadImage, maskColors, mosaicTile } from './images.mjs';
+import { drawFlattened, exportImages, isMosaic, loadFile, loadImage, maskColors, mosaicTile } from './images.mjs';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -14,6 +14,14 @@ const batchDialog = $('batch-dialog');
 const removeDialog = $('remove-dialog');
 const historyDialog = $('history-dialog');
 const hotkeysDialog = $('hotkeys-dialog');
+const mosaicDialog = $('mosaic-dialog');
+const styleWheel = $('mask-style');
+const styleButton = $('mask-style-current');
+const styleReel = $('mask-style-reel');
+const mosaicColor = $('mosaic-color');
+const colorPresets = [...mosaicDialog.querySelectorAll('[data-tint]')];
+const styleNames = { black: '纯黑', white: '纯白', gray: '深灰', brush: '笔刷', dots: '圆点', soft: '柔化', mosaic: '方块马赛克' };
+const maskStyles = Object.keys(styleNames);
 const desktop = globalThis.chrome?.webview;
 const corners = ['nw', 'ne', 'sw', 'se'];
 const samples = [
@@ -31,6 +39,8 @@ let entries = [];
 let index = 0;
 let tool = 'draw';
 let maskStyle = 'black';
+let mosaicTint = null;
+let reelAnimation;
 let view = 'edit';
 let selected = null;
 let zoom = null;
@@ -49,9 +59,10 @@ let previewBoxes = null;
 
 const active = () => entries[index];
 const setDisabled = (id, disabled) => { $(id).disabled = disabled; };
-const openDialog = () => [dialog, batchDialog, removeDialog, historyDialog, hotkeysDialog].find((item) => item.open);
+const openDialog = () => [dialog, batchDialog, removeDialog, historyDialog, hotkeysDialog, mosaicDialog].find((item) => item.open);
 const sameSize = (first, second) => first.width === second.width && first.height === second.height;
 const sameBox = (first, second) => (first.style ?? 'black') === (second.style ?? 'black') &&
+  (!isMosaic(first.style) || (first.mosaicTint ?? null) === (second.mosaicTint ?? null)) &&
   ['x', 'y', 'width', 'height'].every((key) => first[key] === second[key]);
 
 function makeEntry(name, { image, url }, demo = false, boxes = []) {
@@ -147,8 +158,9 @@ function renderMasks() {
     node.className = draft ? 'mask draft' : 'mask';
     node.dataset.id = box.id;
     positionMask(node, display, entry);
-    if (display.style === 'mosaic') {
+    if (isMosaic(display.style)) {
       node.classList.add('mosaic');
+      node.classList.toggle('soft', display.style === 'soft');
       node.append(mosaicTile(entry.image, display));
     } else {
       node.style.backgroundColor = maskColors[display.style] ?? maskColors.black;
@@ -201,8 +213,7 @@ function renderEditor() {
   setDisabled('edit', !entry);
   setDisabled('preview-button', !entry);
   setDisabled('draw', !editing);
-  setDisabled('mask-style', !editing || Boolean(gesture));
-  $('mask-style').value = (entry?.boxes.find((box) => box.id === selected)?.style ?? (selected ? 'black' : maskStyle));
+  renderStyleWheel(!editing || Boolean(gesture));
   setDisabled('select', !editing);
   setDisabled('pan', !editing);
   setDisabled('undo', !editing || !entry?.history.length);
@@ -399,7 +410,11 @@ function renderBatchMasks(entry) {
     const overlay = document.createElement('span');
     overlay.className = 'batch-mask-overlay';
     positionMask(overlay, box, entry);
-    overlay.style.backgroundColor = maskColors[box.style] ?? maskColors.black;
+    if (isMosaic(box.style)) {
+      overlay.classList.toggle('soft', box.style === 'soft');
+      overlay.append(mosaicTile(entry.image, box));
+    }
+    else overlay.style.backgroundColor = maskColors[box.style] ?? maskColors.black;
     const marker = document.createElement('span');
     marker.className = 'mask-marker';
     marker.textContent = position + 1;
@@ -591,7 +606,8 @@ function updateGesture(event) {
   if (gesture.mode === 'draw') {
     const box = pixelBounds(gesture.start, end, entry);
     const dragged = Math.hypot(event.clientX - gesture.screenX, event.clientY - gesture.screenY) >= 3;
-    gesture.draft = dragged && box.width && box.height ? { ...box, id: gesture.id, style: maskStyle } : null;
+    gesture.draft = dragged && box.width && box.height ? { ...box, id: gesture.id, style: maskStyle,
+      mosaicTint: isMosaic(maskStyle) ? mosaicTint : null } : null;
   } else {
     gesture.draft = gesture.mode === 'move' ? moveBox(gesture.original, dx, dy, entry)
       : resizeBox(gesture.original, gesture.handle, dx, dy, entry);
@@ -773,16 +789,102 @@ $('samples').onclick = addSamples;
 $('edit').onclick = () => changeView('edit');
 $('preview-button').onclick = () => changeView('preview');
 $('draw').onclick = () => useTool('draw');
-$('mask-style').onchange = (event) => {
-  const style = event.target.value;
-  maskStyle = style;
-  const entry = active();
-  const old = entry?.boxes.find((box) => box.id === selected);
-  if (old && (old.style ?? 'black') !== style) {
-    editBoxes(entry.boxes.map((box) => box === old ? { ...box, style } : box));
-  }
-  if (style === 'mosaic') announce('马赛克可能保留可辨认轮廓，敏感信息建议用纯色遮挡。');
+const styleAt = (index) => maskStyles[(index + maskStyles.length) % maskStyles.length];
+const selectedMask = () => active()?.boxes.find((box) => box.id === selected);
+const displayedMaskStyle = (box = selectedMask()) => box ? box.style ?? 'black' : maskStyle;
+const paletteStyle = () => {
+  const current = displayedMaskStyle();
+  return isMosaic(current) ? current : 'mosaic';
 };
+let styleDirection = 0;
+
+function renderStyleWheel(disabled) {
+  const box = selectedMask();
+  const current = displayedMaskStyle(box);
+  const previous = styleWheel.dataset.style;
+  const position = maskStyles.indexOf(current);
+  const labels = [-1, 0, 1].map((offset) => styleNames[styleAt(position + offset)]);
+  for (const [index, item] of [...styleReel.children].entries()) {
+    if (item.textContent !== labels[index]) item.textContent = labels[index];
+  }
+  styleWheel.dataset.style = current;
+  styleWheel.classList.toggle('textured', isMosaic(current));
+  styleButton.setAttribute('aria-label', `遮挡样式：${styleNames[current]}`);
+  const tint = box ? box.mosaicTint : mosaicTint;
+  styleWheel.style.setProperty('--mosaic-tint', tint ?? 'transparent');
+  for (const id of ['mask-style-current', 'mask-style-prev', 'mask-style-next', 'mosaic-palette']) setDisabled(id, disabled);
+  if (current === previous) return;
+  reelAnimation?.cancel();
+  if (styleDirection && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const offset = styleDirection * Number.parseFloat(getComputedStyle(styleWheel).getPropertyValue('--reel-row'));
+    reelAnimation = styleReel.animate([
+      { transform: `translateY(-50%) translateY(${offset}px)` },
+      { transform: 'translateY(-50%)' },
+    ], { duration: 145, easing: 'cubic-bezier(.22,.7,.3,1)' });
+  }
+}
+
+function applyMaskStyle(style, tint = mosaicTint) {
+  const entry = active();
+  if (!entry || view !== 'edit' || gesture) return;
+  maskStyle = style;
+  if (isMosaic(style)) mosaicTint = tint;
+  const old = selectedMask();
+  const next = { ...old, style, mosaicTint: isMosaic(style) ? tint : null };
+  if (old && !sameBox(old, next)) editBoxes(entry.boxes.map((box) => box === old ? next : box));
+  else renderStyleWheel(false);
+  if (isMosaic(style)) announce('纹理可能保留可辨认轮廓，敏感信息建议用纯色遮挡。');
+}
+
+function stepMaskStyle(direction) {
+  if (styleButton.disabled || openDialog()) return;
+  const position = maskStyles.indexOf(displayedMaskStyle());
+  styleDirection = direction;
+  applyMaskStyle(styleAt(position + direction));
+  styleDirection = 0;
+}
+
+styleButton.onclick = $('mask-style-next').onclick = () => stepMaskStyle(1);
+$('mask-style-prev').onclick = () => stepMaskStyle(-1);
+styleWheel.onkeydown = (event) => {
+  if (event.ctrlKey || event.metaKey || event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+  event.preventDefault();
+  stepMaskStyle(event.key === 'ArrowUp' ? -1 : 1);
+};
+let wheelDelta = 0;
+let lastWheelTime = 0;
+styleWheel.addEventListener('wheel', (event) => {
+  if (styleButton.disabled || event.ctrlKey || event.metaKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+  event.preventDefault();
+  const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 96 : 1);
+  if (event.timeStamp - lastWheelTime > 160 || Math.sign(wheelDelta) !== Math.sign(pixels)) wheelDelta = 0;
+  lastWheelTime = event.timeStamp;
+  wheelDelta += pixels;
+  if (Math.abs(wheelDelta) < 32) return;
+  stepMaskStyle(Math.sign(wheelDelta));
+  wheelDelta = 0;
+}, { passive: false });
+styleWheel.addEventListener('mouseleave', () => { wheelDelta = 0; });
+
+function previewMosaicColor() {
+  const tint = mosaicColor.value;
+  mosaicDialog.dataset.style = paletteStyle();
+  mosaicDialog.style.setProperty('--mosaic-tint', tint);
+  for (const preset of colorPresets) preset.setAttribute('aria-pressed', preset.dataset.tint === tint);
+}
+
+$('mosaic-palette').onclick = () => {
+  if (openDialog()) return;
+  const box = selectedMask();
+  mosaicColor.value = (isMosaic(box?.style) ? box.mosaicTint : mosaicTint) ?? '#3275d0';
+  previewMosaicColor();
+  mosaicDialog.showModal();
+};
+for (const preset of colorPresets) preset.onclick = () => { mosaicColor.value = preset.dataset.tint; previewMosaicColor(); };
+mosaicColor.oninput = previewMosaicColor;
+$('close-mosaic').onclick = () => mosaicDialog.close();
+$('reset-mosaic').onclick = () => { applyMaskStyle(paletteStyle(), null); mosaicDialog.close(); };
+$('apply-mosaic').onclick = () => { applyMaskStyle(paletteStyle(), mosaicColor.value); mosaicDialog.close(); };
 
 const defaultHotkeys = ['6:120', '6:121'];
 const hotkeyLabels = ['截屏', '截图剪贴板'];

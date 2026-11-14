@@ -18,6 +18,9 @@ const output = await mkdtemp(resolve(tmpdir(), 'redactor-smoke-'));
 const testProfile = resolve(output, 'profile');
 const captureFolder = resolve(testProfile, 'ScreenshotRedactor', 'Captures');
 await mkdir(captureFolder, { recursive: true });
+const hotkeySettings = resolve(testProfile, 'ScreenshotRedactor', 'hotkeys.txt');
+// The installed app can be running in the same Windows session during this test.
+await writeFile(hotkeySettings, '7:117\n7:118');
 const sample = await readFile(resolve('docs/samples/account.png'));
 for (let i = 0; i < 30; i++) {
   await writeFile(resolve(captureFolder, `20261114-120000-${String(i).padStart(3, '0')}-aabbccdd.png`), sample);
@@ -56,12 +59,15 @@ try {
   await shortcuts.getByRole('button', { name: '保存快捷键' }).click();
   await shortcuts.getByText('截屏与截图剪贴板需要使用不同的快捷键。').waitFor();
   await shortcuts.getByRole('button', { name: '恢复默认' }).click();
+  assert.match(await editHistory.textContent(), /Ctrl \+ Shift \+ F10/);
   await editHotkey.click();
-  await page.keyboard.press('Control+Alt+F8');
+  await page.keyboard.press('Control+Alt+Shift+F8');
+  await editHistory.click();
+  await page.keyboard.press('Control+Alt+Shift+F7');
   await shortcuts.getByRole('button', { name: '保存快捷键' }).click();
   await shortcuts.waitFor({ state: 'hidden' });
-  assert.match(await page.getByRole('button', { name: '区域截屏' }).getAttribute('title'), /Ctrl \+ Alt \+ F8/);
-  assert.equal((await readFile(resolve(testProfile, 'ScreenshotRedactor', 'hotkeys.txt'), 'utf8')).trim(), '3:119\n6:121');
+  assert.match(await page.getByRole('button', { name: '区域截屏' }).getAttribute('title'), /Ctrl \+ Shift \+ Alt \+ F8/);
+  assert.equal((await readFile(hotkeySettings, 'utf8')).trim(), '7:119\n7:118');
   await page.getByRole('button', { name: '截图剪贴板' }).click();
   const history = page.getByRole('dialog', { name: '截图剪贴板' });
   await history.getByRole('checkbox').nth(29).waitFor({ state: 'attached' });

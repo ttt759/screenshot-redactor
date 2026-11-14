@@ -8,8 +8,15 @@ const demoCount = 5;
 
 test('changes a selected mask style and flattens opaque color or mosaic into the preview', async ({ page }) => {
   await openSamples(page);
-  const style = page.getByRole('combobox', { name: '遮挡样式' });
-  await style.selectOption('white');
+  const style = page.locator('#mask-style');
+  const current = page.getByRole('button', { name: /^遮挡样式：/ });
+  const artboard = await page.locator('#artboard').boundingBox();
+  await style.hover();
+  await page.mouse.wheel(0, 100);
+  await expect(current).toHaveAccessibleName('遮挡样式：纯白');
+  await expect(style).toHaveAttribute('data-style', 'white');
+  expect(await page.locator('#artboard').boundingBox()).toEqual(artboard);
+  await expect(page.getByRole('button', { name: '自定义', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '成品预览' }).click();
   const preview = page.locator('#preview');
   const pixels = (points) => preview.evaluate((canvas, positions) => positions.map(([x, y]) =>
@@ -17,13 +24,79 @@ test('changes a selected mask style and flattens opaque color or mosaic into the
   expect(await pixels([[470, 412], [415, 300]])).toEqual([[255, 255, 255, 255], [0, 0, 0, 255]]);
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await page.locator('#masks .mask').first().click();
-  await style.selectOption('mosaic');
-  await expect(page.locator('#masks .mask canvas')).toHaveCount(1);
+  await current.press('ArrowUp');
+  await expect(current).toHaveAccessibleName('遮挡样式：纯黑');
+  await page.getByRole('button', { name: '上一种遮挡样式' }).click();
+  await expect(current).toHaveAccessibleName('遮挡样式：方块马赛克');
+  const tile = page.locator('#masks .mask canvas');
+  await expect(tile).toHaveCount(1);
+  const firstPixel = () => tile.evaluate((canvas) => [...canvas.getContext('2d').getImageData(0, 0, 1, 1).data]);
+  const original = await firstPixel();
+  const custom = page.getByRole('button', { name: '自定义', exact: true });
+  await custom.click();
+  const palette = page.getByRole('dialog', { name: '马赛克配色' });
+  await palette.getByLabel('自定义颜色').fill('#2070e0');
+  await palette.getByRole('button', { name: '应用配色' }).click();
+  const tinted = await firstPixel();
+  expect(tinted).not.toEqual(original);
+  expect(tinted[2]).toBeGreaterThan(tinted[0]);
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  expect(await firstPixel()).toEqual(original);
+  await page.locator('#masks .mask').first().click();
+  await current.press('ArrowDown');
+  await expect(current).toHaveAccessibleName('遮挡样式：纯黑');
+  await custom.click();
+  await palette.getByLabel('自定义颜色').fill('#2070e0');
+  await palette.getByRole('button', { name: '应用配色' }).click();
   await page.getByRole('button', { name: '成品预览' }).click();
-  const samples = await pixels([[470, 412], [471, 412], [415, 300]]);
+  const samples = await pixels([[446, 403], [447, 403], [415, 300]]);
   expect(samples[0]).toEqual(samples[1]);
-  expect(samples[0][3]).toBe(255);
+  expect(samples[0]).toEqual(tinted);
   expect(samples[2]).toEqual([0, 0, 0, 255]);
+  await page.getByRole('button', { name: '导出当前 PNG' }).click();
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: '仍然导出' }).click();
+  const png = await readFile(await (await pending).path());
+  const exported = await page.evaluate(async (encoded) => {
+    const blob = new Blob([Uint8Array.from(atob(encoded), (letter) => letter.charCodeAt(0))], { type: 'image/png' });
+    const bitmap = await createImageBitmap(blob);
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext('2d');
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    return Array.from(context.getImageData(446, 403, 1, 1).data);
+  }, png.toString('base64'));
+  expect(exported).toEqual(tinted);
+});
+
+test('cycles through distinct opaque mosaic textures in the editor and preview', async ({ page }) => {
+  await openSamples(page);
+  await page.locator('#masks .mask').first().click();
+  const current = page.getByRole('button', { name: /^遮挡样式：/ });
+  const reel = page.locator('#mask-style-reel');
+  await reel.evaluate((node) => {
+    const animate = node.animate.bind(node);
+    node.animate = (...args) => {
+      node.dataset.firstFrame = args[0][0].transform;
+      return animate(...args);
+    };
+  });
+  await current.press('ArrowUp');
+  await expect(reel).toHaveAttribute('data-first-frame', 'translateY(-50%) translateY(-15px)');
+  const rendered = [];
+  for (const name of ['方块马赛克', '柔化', '圆点', '笔刷']) {
+    await expect(current).toHaveAccessibleName(`遮挡样式：${name}`);
+    await expect(page.locator('#masks .mask canvas')).toHaveCount(1);
+    await page.getByRole('button', { name: '成品预览' }).click();
+    const data = await page.locator('#preview').evaluate((canvas) =>
+      Array.from(canvas.getContext('2d').getImageData(446, 403, 254, 28).data));
+    expect(data.filter((_, index) => index % 4 === 3).every((alpha) => alpha === 255)).toBe(true);
+    expect(rendered).not.toContainEqual(data);
+    rendered.push(data);
+    await page.getByRole('button', { name: '编辑', exact: true }).click();
+    await page.locator('#masks .mask').first().click();
+    await current.press('ArrowUp');
+  }
 });
 
 test('highlights the canvas during a drag and reports individual import failures', async ({ page }) => {

@@ -1,15 +1,57 @@
 import { outputName } from './geometry.mjs';
 
 export const maskColors = Object.freeze({ black: '#000', white: '#fff', gray: '#484b52' });
+const mosaicStyles = new Set(['mosaic', 'brush', 'dots', 'soft']);
+export const isMosaic = (style) => mosaicStyles.has(style);
 
 export function mosaicTile(image, box) {
   const tile = document.createElement('canvas');
-  tile.width = Math.max(1, Math.floor(box.width / 16));
-  tile.height = Math.max(1, Math.floor(box.height / 16));
+  const cellSize = box.style === 'brush' || box.style === 'dots'
+    ? Math.max(16, Math.ceil(Math.max(box.width, box.height) / 128)) : 16;
+  tile.width = Math.max(1, Math.floor(box.width / cellSize));
+  tile.height = Math.max(1, Math.floor(box.height / cellSize));
   const sample = tile.getContext('2d', { alpha: false });
   sample.imageSmoothingQuality = 'high';
   sample.drawImage(image, box.x, box.y, box.width, box.height, 0, 0, tile.width, tile.height);
-  return tile;
+  if (box.mosaicTint) {
+    sample.globalAlpha = .62;
+    sample.fillStyle = box.mosaicTint;
+    sample.fillRect(0, 0, tile.width, tile.height);
+    sample.globalAlpha = 1;
+  }
+  if (box.style !== 'brush' && box.style !== 'dots') return tile;
+
+  const pixels = sample.getImageData(0, 0, tile.width, tile.height).data;
+  const pattern = document.createElement('canvas');
+  const cell = 8;
+  pattern.width = tile.width * cell;
+  pattern.height = tile.height * cell;
+  const paint = pattern.getContext('2d', { alpha: false });
+  paint.imageSmoothingEnabled = false;
+  paint.drawImage(tile, 0, 0, pattern.width, pattern.height);
+  for (let y = 0; y < tile.height; y++) {
+    for (let x = 0; x < tile.width; x++) {
+      const i = (y * tile.width + x) * 4;
+      const color = (offset) => `rgb(${[0, 1, 2].map((channel) => Math.min(255, Math.max(0, pixels[i + channel] + offset))).join(' ')})`;
+      const left = x * cell, top = y * cell;
+      if (box.style === 'dots') {
+        paint.fillStyle = color(24);
+        paint.fillRect(left, top, cell, cell);
+        paint.fillStyle = color(-22);
+        paint.beginPath();
+        paint.arc(left + 4, top + 4, 3.6, 0, Math.PI * 2);
+        paint.fill();
+      } else {
+        paint.fillStyle = color(18);
+        paint.fillRect(left + (x + y) % 3, top + 1, cell - 2, 1);
+        paint.fillStyle = color(-22);
+        paint.fillRect(left, top + 3 + (x + y) % 2, cell - x % 2, 2);
+        paint.fillStyle = color(-12);
+        paint.fillRect(left + y % 2, top + 7, cell - 2, 1);
+      }
+    }
+  }
+  return pattern;
 }
 
 export function loadImage(url) {
@@ -57,12 +99,12 @@ export function drawFlattened(canvas, entry) {
   context.drawImage(entry.image, 0, 0);
   // Apply mosaic first so a solid mask always wins in overlapping regions.
   for (const box of entry.boxes) {
-    if (box.style !== 'mosaic') continue;
-    context.imageSmoothingEnabled = false;
+    if (!isMosaic(box.style)) continue;
+    context.imageSmoothingEnabled = box.style === 'soft';
     context.drawImage(mosaicTile(entry.image, box), box.x, box.y, box.width, box.height);
   }
   for (const box of entry.boxes) {
-    if (box.style === 'mosaic') continue;
+    if (isMosaic(box.style)) continue;
     context.fillStyle = maskColors[box.style] ?? maskColors.black;
     context.fillRect(box.x, box.y, box.width, box.height);
   }
