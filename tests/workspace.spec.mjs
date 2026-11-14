@@ -6,6 +6,54 @@ import { unzipSync } from 'fflate';
 const assets = ['account.png', 'checkout.jpg', 'receipt.png'];
 const demoCount = 5;
 
+test('organizes imported screenshots and opens a specific unchecked preview from export', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#file-input').setInputFiles(assets.map((name) => resolve('docs/samples', name)));
+  const rows = page.locator('.file-row');
+  const button = (name) => page.getByRole('button', { name, exact: true });
+  await expect(rows).toHaveCount(3);
+  await rows.nth(1).click();
+  await button('前移当前截图').click();
+  await expect(rows.first()).toContainText('checkout.jpg');
+  await expect(rows.first()).toHaveAttribute('aria-current', 'true');
+  await rows.last().click();
+  await button('移除当前截图').click();
+  await expect(rows).toHaveCount(2);
+  await button('导出全部 ZIP').click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'checkout.jpg', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(rows.first()).toHaveAttribute('aria-current', 'true');
+  await expect(button('成品预览')).toHaveAttribute('aria-pressed', 'true');
+  await button('确认并继续').click();
+  await expect(rows.last()).toHaveAttribute('aria-current', 'true');
+  await button('确认并继续').click();
+  const pending = page.waitForEvent('download');
+  await button('导出全部 ZIP').click();
+  const zip = unzipSync(await readFile(await (await pending).path()));
+  expect(Object.keys(zip)).toEqual(['01-redacted.png', '02-redacted.png']);
+  const width = (name) => new DataView(zip[name].buffer, zip[name].byteOffset).getUint32(16);
+  expect(width('01-redacted.png')).toBe(1024);
+  expect(width('02-redacted.png')).toBe(1120);
+});
+
+test('starts review from the main workflow and confirms before removing an edited screenshot', async ({ page }) => {
+  await openSamples(page);
+  const button = (name) => page.getByRole('button', { name, exact: true });
+  const rows = page.locator('.file-row');
+  await button('移除当前截图').click();
+  const prompt = page.getByRole('dialog', { name: '移除截图？' });
+  await expect(prompt).toBeVisible();
+  await prompt.getByRole('button', { name: '取消' }).click();
+  await expect(rows).toHaveCount(demoCount);
+  await button('开始检查').click();
+  await expect(button('成品预览')).toHaveAttribute('aria-pressed', 'true');
+  await button('移除当前截图').click();
+  await prompt.getByRole('button', { name: '移除截图' }).click();
+  await expect(rows).toHaveCount(demoCount - 1);
+  await expect(rows.first()).toHaveAttribute('aria-current', 'true');
+});
+
 test('opens an empty import workspace and only loads samples on request', async ({ page }) => {
   const sampleRequests = [];
   page.on('request', (request) => {

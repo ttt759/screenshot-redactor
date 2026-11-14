@@ -13,6 +13,9 @@ const paths = {
   expand: '<path d="M4 9V4h5m6 0h5v5m0 6v5h-5m-6 0H4v-5"/>',
   right: '<path d="m9 6 6 6-6 6"/>',
   left: '<path d="m15 6-6 6 6 6"/>',
+  up: '<path d="M12 19V5m-5 5 5-5 5 5"/>',
+  down: '<path d="M12 5v14m-5-5 5 5 5-5"/>',
+  check: '<path d="m5 12 4 4 10-10"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   image: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-4 3 3 4-5 5 5"/>',
 };

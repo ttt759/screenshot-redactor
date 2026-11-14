@@ -11,6 +11,7 @@ const preview = $('preview');
 const source = $('source');
 const dialog = $('export-dialog');
 const batchDialog = $('batch-dialog');
+const removeDialog = $('remove-dialog');
 const corners = ['nw', 'ne', 'sw', 'se'];
 const samples = [
   ['account.png', '01-账号信息.png', [
@@ -43,7 +44,7 @@ let previewBoxes = null;
 
 const active = () => entries[index];
 const setDisabled = (id, disabled) => { $(id).disabled = disabled; };
-const openDialog = () => [dialog, batchDialog].find((item) => item.open);
+const openDialog = () => [dialog, batchDialog, removeDialog].find((item) => item.open);
 const sameSize = (first, second) => first.width === second.width && first.height === second.height;
 const sameBox = (first, second) => ['x', 'y', 'width', 'height'].every((key) => first[key] === second[key]);
 
@@ -89,11 +90,21 @@ function renderRows() {
   fileList.replaceChildren(...rows);
   if (focusedRow !== null) rows[Number(focusedRow)]?.focus({ preventScroll: true });
   $('file-count').textContent = entries.length;
+  $('file-position').textContent = `第 ${index + 1} / ${entries.length} 张`;
   const reviewed = entries.filter((entry) => entry.checked).length;
   $('progress-text').textContent = `${reviewed} / ${entries.length}`;
   $('progress').max = Math.max(1, entries.length);
   $('progress').value = reviewed;
   $('progress').setAttribute('aria-valuenow', reviewed);
+  renderReviewStart();
+}
+
+function renderReviewStart() {
+  const button = $('review-workspace');
+  button.hidden = !entries.length || view === 'preview';
+  const complete = entries.every((entry) => entry.checked);
+  button.disabled = importsPending > 0 || Boolean(gesture);
+  button.lastChild.textContent = complete ? '查看成品' : '开始检查';
 }
 
 function fittedScale(entry) {
@@ -159,6 +170,11 @@ function renderEditor() {
   $('stage-inner').hidden = !entry;
   $('toolbar').hidden = !entry;
   $('editor-foot').hidden = !entry;
+  $('file-actions').hidden = !entry;
+  const organizingBlocked = !entry || importsPending > 0 || busy || Boolean(gesture);
+  setDisabled('move-earlier', organizingBlocked || index === 0);
+  setDisabled('move-later', organizingBlocked || index >= entries.length - 1);
+  setDisabled('remove-file', organizingBlocked);
   $('edit').setAttribute('aria-pressed', editing);
   $('preview-button').setAttribute('aria-pressed', Boolean(entry) && !editing);
   $('draw').setAttribute('aria-pressed', editing && tool === 'draw');
@@ -187,6 +203,7 @@ function renderEditor() {
   setDisabled('previous', !entry || index === 0);
   setDisabled('next', !entry || index >= entries.length - 1);
   renderReviewControls();
+  renderReviewStart();
   setDisabled('export-one', !entry || busy || importsPending > 0);
   setDisabled('export-all', !entries.length || busy || importsPending > 0);
   setDisabled('fit', !entry);
@@ -219,6 +236,10 @@ function goTo(position, nextView = view) {
   stage.scrollTo(0, 0);
   renderRows();
   renderEditor();
+  revealScreenshot(position);
+}
+
+function revealScreenshot(position) {
   const list = fileList.getBoundingClientRect();
   const row = fileList.children[position].getBoundingClientRect();
   fileList.scrollBy({
@@ -233,6 +254,49 @@ function changeView(nextView) {
   view = nextView;
   if (view === 'preview') selected = null;
   renderEditor();
+}
+
+function moveScreenshot(direction) {
+  const entry = active();
+  const next = index + direction;
+  if (!entry || !entries[next] || busy || importsPending || gesture) return;
+  entries[index] = entries[next];
+  entries[next] = entry;
+  index = next;
+  renderRows();
+  renderEditor();
+  revealScreenshot(index);
+  if (document.activeElement === document.body) fileList.children[index].focus({ preventScroll: true });
+}
+
+function removeScreenshot() {
+  const entry = active();
+  if (!entry || busy || importsPending || gesture) return;
+  entries.splice(index, 1);
+  if (!entry.demo) URL.revokeObjectURL(entry.url);
+  if (previewEntry === entry) {
+    previewEntry = previewBoxes = null;
+    preview.width = preview.height = 0;
+  }
+  if (lastBatch) {
+    lastBatch = lastBatch.filter(({ target }) => target !== entry);
+    if (!lastBatch.length) lastBatch = null;
+  }
+  if (entries.length) {
+    goTo(Math.min(index, entries.length - 1));
+    fileList.children[index].focus({ preventScroll: true });
+  } else {
+    index = 0;
+    view = 'edit';
+    tool = 'draw';
+    selected = zoom = null;
+    source.removeAttribute('src');
+    masks.replaceChildren();
+    renderRows();
+    renderEditor();
+    $('empty-import').focus({ preventScroll: true });
+  }
+  announce(`已从列表移除 ${entry.name}`);
 }
 
 function replaceBoxes(entry, boxes) {
@@ -606,12 +670,29 @@ function requestExport(batch) {
   $('dialog-note').textContent = `${missing.length} 张截图还没有标记为已检查。`;
   $('unchecked-list').replaceChildren(...missing.map((entry) => {
     const row = document.createElement('li');
-    row.textContent = entry.name;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'unchecked-image';
+    button.textContent = entry.name;
+    button.setAttribute('aria-label', entry.name);
+    button.onclick = () => {
+      dialog.close();
+      reviewScreenshot(entry);
+    };
+    row.append(button);
     return row;
   }));
   pendingExport = { targets, batch, filename, firstUnchecked: missing[0] };
   dialog.showModal();
   $('start-review').focus();
+}
+
+function reviewScreenshot(entry) {
+  const position = entries.indexOf(entry);
+  if (position < 0) return;
+  if (position === index) changeView('preview');
+  else goTo(position, 'preview');
+  ($('confirm-next').disabled ? $('export-all') : $('confirm-next')).focus({ preventScroll: true });
 }
 
 async function runExport({ targets, batch, filename }) {
@@ -652,6 +733,25 @@ $('review').onchange = (event) => {
   renderRows();
   renderReviewControls();
 };
+$('move-earlier').onclick = () => moveScreenshot(-1);
+$('move-later').onclick = () => moveScreenshot(1);
+$('remove-file').onclick = () => {
+  const entry = active();
+  if (entry.boxes.length || entry.history.length || entry.checked) {
+    $('remove-note').textContent = `「${entry.name}」将从当前批次移除，该图的编辑和检查记录也会清除。`;
+    removeDialog.showModal();
+    $('cancel-remove').focus();
+  } else {
+    removeScreenshot();
+  }
+};
+$('cancel-remove').onclick = () => removeDialog.close();
+$('confirm-remove').onclick = () => {
+  removeDialog.close();
+  removeScreenshot();
+};
+$('review-workspace').onclick = () => reviewScreenshot(active().checked
+  ? entries.find((entry) => !entry.checked) ?? active() : active());
 $('previous').onclick = () => goTo(index - 1);
 $('next').onclick = () => goTo(index + 1);
 $('confirm-next').onclick = confirmAndContinue;
@@ -670,10 +770,9 @@ $('export-all').onclick = () => requestExport(true);
 $('close-dialog').onclick = () => dialog.close();
 dialog.addEventListener('close', () => { pendingExport = null; });
 $('start-review').onclick = () => {
-  const position = entries.indexOf(pendingExport.firstUnchecked);
+  const entry = pendingExport.firstUnchecked;
   dialog.close();
-  goTo(position, 'preview');
-  $('review').focus({ preventScroll: true });
+  reviewScreenshot(entry);
 };
 $('force-export').onclick = () => {
   const job = pendingExport;

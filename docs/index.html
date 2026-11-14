@@ -19,6 +19,7 @@
     </div>
     <div class="header-actions">
       <span class="privacy" data-icon="shield">图片仅在本机处理</span>
+      <button class="button subtle review-start" id="review-workspace" data-icon="check" hidden>开始检查</button>
       <button class="button primary" id="export-all" data-icon="download" disabled>导出全部 ZIP</button>
     </div>
   </header>
@@ -27,6 +28,12 @@
     <aside class="sidebar" aria-label="截图列表">
       <div class="sidebar-head"><h2>截图 <span id="file-count">0</span></h2><button id="import" class="button subtle compact" data-icon="plus">添加</button></div>
       <input id="file-input" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" multiple hidden>
+      <div id="file-actions" class="file-actions" role="group" aria-label="整理当前截图" hidden>
+        <span id="file-position"></span>
+        <button id="move-earlier" class="button icon-button" data-icon="up" aria-label="前移当前截图" title="前移当前截图" disabled></button>
+        <button id="move-later" class="button icon-button" data-icon="down" aria-label="后移当前截图" title="后移当前截图" disabled></button>
+        <button id="remove-file" class="button icon-button" data-icon="close" aria-label="移除当前截图" title="从列表移除当前截图" disabled></button>
+      </div>
       <div id="file-list" class="file-list"></div>
       <div class="sidebar-foot">
         <div class="progress-label"><span>检查进度</span><strong id="progress-text">0 / 0</strong></div>
@@ -116,6 +123,12 @@
     <div class="dialog-actions"><button class="button subtle" id="force-export">仍然导出</button><button class="button primary" id="start-review">逐张检查</button></div>
   </dialog>
 
+  <dialog id="remove-dialog" aria-labelledby="remove-title" aria-describedby="remove-note">
+    <div class="dialog-heading"><h2 id="remove-title">移除截图？</h2></div>
+    <p id="remove-note"></p>
+    <div class="dialog-actions"><button class="button subtle" id="cancel-remove">取消</button><button class="button primary" id="confirm-remove">移除截图</button></div>
+  </dialog>
+
   <dialog id="batch-dialog" aria-labelledby="batch-title" aria-describedby="batch-description">
     <div class="dialog-heading"><h2 id="batch-title">批量应用遮挡框</h2><button id="close-batch" class="button icon-button" data-icon="close" aria-label="关闭" title="关闭"></button></div>
     <p id="batch-source" class="batch-source"></p>
@@ -135,7 +148,6 @@
         <ul id="batch-targets" class="batch-targets" aria-labelledby="batch-targets-title"></ul>
       </section>
     </div>
-    <ul id="batch-targets" class="batch-targets" aria-label="目标截图"></ul>
     <div class="dialog-actions"><button class="button subtle" id="cancel-batch">取消</button><button class="button primary" id="apply-batch" disabled>应用到 0 张</button></div>
   </dialog>
 </body>
