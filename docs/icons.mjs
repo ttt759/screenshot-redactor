@@ -11,6 +11,7 @@ const paths = {
   undo: '<path d="M9 5 4 10l5 5m-5-5h10a5 5 0 0 1 0 10h-3"/>',
   trash: '<path d="M5 7h14m-9 0V4h4v3m3 0-1 13H8L7 7m3 4v5m4-5v5"/>',
   expand: '<path d="M4 9V4h5m6 0h5v5m0 6v5h-5m-6 0H4v-5"/>',
+  keyboard: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h1m3 0h1m3 0h1m-9 4h1m3 0h1m3 0h1m-7 3h6"/>',
   right: '<path d="m9 6 6 6-6 6"/>',
   left: '<path d="m15 6-6 6 6 6"/>',
   up: '<path d="M12 19V5m-5 5 5-5 5 5"/>',

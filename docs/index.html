@@ -22,6 +22,7 @@
       <div id="capture-tools" class="capture-tools" hidden>
         <button class="button icon-button" id="capture-screen" data-icon="expand" aria-label="区域截屏" title="区域截屏（Ctrl + Shift + F9）"></button>
         <button class="button subtle compact" id="open-history" title="截图剪贴板（Ctrl + Shift + F10）">截图剪贴板</button>
+        <button class="button icon-button" id="configure-hotkeys" data-icon="keyboard" aria-label="快捷键设置" title="快捷键设置"></button>
       </div>
       <button class="button subtle review-start" id="review-workspace" data-icon="check" hidden>开始检查</button>
       <button class="button primary" id="export-all" data-icon="download" disabled>导出全部 ZIP</button>
@@ -137,6 +138,19 @@
     </div>
     <div id="confirm-clear-captures" class="dialog-actions" hidden>
       <span>清空已保存的截屏？</span><button class="button subtle" id="cancel-clear-captures">取消</button><button class="button primary" id="apply-clear-captures">确认清空</button>
+    </div>
+  </dialog>
+
+  <dialog id="hotkeys-dialog" aria-labelledby="hotkeys-title">
+    <div class="dialog-heading"><h2 id="hotkeys-title">快捷键设置</h2></div>
+    <p>点击组合键后直接按键。支持 Ctrl 或 Alt，另加字母、数字或 F1–F11。</p>
+    <div class="hotkey-row"><span>区域截屏</span><button class="button subtle compact" id="bind-capture"></button></div>
+    <div class="hotkey-row"><span>截图剪贴板</span><button class="button subtle compact" id="bind-history"></button></div>
+    <p id="hotkeys-status" role="status" hidden></p>
+    <div class="dialog-actions hotkey-actions">
+      <button class="button subtle" id="reset-hotkeys">恢复默认</button>
+      <button class="button subtle" id="cancel-hotkeys">取消</button>
+      <button class="button primary" id="save-hotkeys">保存快捷键</button>
     </div>
   </dialog>
 

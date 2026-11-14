@@ -5,7 +5,6 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -32,15 +31,14 @@ internal sealed class RedactorWindow : Form
     private const string Home = "https://" + Host + "/index.html";
     private readonly string profile = Path.Combine(Path.GetTempPath(), "ScreenshotRedactor-" + Guid.NewGuid().ToString("N"));
     private readonly WebView2 view = new WebView2 { Dock = DockStyle.Fill };
-    private readonly CaptureHistory captureHistory = new CaptureHistory(Path.Combine(
+    private static readonly string DataFolder = Path.Combine(
         Environment.GetEnvironmentVariable("SCREENSHOT_REDACTOR_TEST_PROFILE") ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "ScreenshotRedactor", "Captures"));
+        "ScreenshotRedactor");
+    private readonly CaptureHistory captureHistory = new CaptureHistory(Path.Combine(DataFolder, "Captures"));
+    private readonly CaptureHotkeys hotkeys = new CaptureHotkeys(Path.Combine(DataFolder, "hotkeys.txt"));
     private CoreWebView2Environment environment;
     private bool captureInProgress;
-    private const int CaptureKey = 1, HistoryKey = 2, HotkeyMessage = 0x0312;
-    private const uint CtrlShiftNoRepeat = 0x4006;
-    [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
-    [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr window, int id);
+    private bool configuringHotkeys;
     private static readonly Dictionary<string, string> Assets = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         { "index.html", "text/html; charset=utf-8" }, { "styles.css", "text/css; charset=utf-8" },
@@ -78,11 +76,11 @@ internal sealed class RedactorWindow : Form
             browser.Settings.AreHostObjectsAllowed = false;
             browser.Settings.IsWebMessageEnabled = true;
             browser.WebMessageReceived += ReceiveMessage;
+            var registered = hotkeys.Initialize(Handle);
             browser.NavigationCompleted += (s, e) => {
                 if (!e.IsSuccess) return;
-                var capture = RegisterHotKey(Handle, CaptureKey, CtrlShiftNoRepeat, (uint)Keys.F9);
-                var history = RegisterHotKey(Handle, HistoryKey, CtrlShiftNoRepeat, (uint)Keys.F10);
-                if (!capture || !history) Notify("截屏快捷键被占用，仍可使用工具栏按钮。");
+                Notify(hotkeys.Settings);
+                if (!registered) Notify("有快捷键被占用，可在快捷键设置中更换。");
             };
             browser.NewWindowRequested += (s, e) => { e.Handled = true; };
             browser.PermissionRequested += (s, e) => { e.State = CoreWebView2PermissionState.Deny; };
@@ -116,6 +114,16 @@ internal sealed class RedactorWindow : Form
         try { command = args.TryGetWebMessageAsString(); }
         catch (ArgumentException) { return; }
         if (command == "capture") BeginRegionCapture();
+        else if (command == "get-hotkeys") Notify(hotkeys.Settings);
+        else if (command == "configure-hotkeys") configuringHotkeys = true;
+        else if (command == "finish-hotkeys") configuringHotkeys = false;
+        else if (command.StartsWith("save-hotkeys|", StringComparison.Ordinal))
+        {
+            var parts = command.Split('|');
+            if (parts.Length != 3 || command.Length > 64) return;
+            var error = hotkeys.Change(Handle, parts[1], parts[2]);
+            Notify(error == null ? "saved-" + hotkeys.Settings : "hotkey-error|" + error);
+        }
         else if (command == "clear-captures" && !captureInProgress)
         {
             try { captureHistory.Clear(); Notify("history-cleared"); }
@@ -132,14 +140,19 @@ internal sealed class RedactorWindow : Form
 
     protected override void WndProc(ref Message message)
     {
-        if (message.Msg == HotkeyMessage && !captureInProgress)
+        if (message.Msg == CaptureHotkeys.Message && !captureInProgress)
         {
-            if (message.WParam.ToInt32() == CaptureKey) BeginRegionCapture();
-            else if (message.WParam.ToInt32() == HistoryKey)
+            var slot = message.WParam.ToInt32();
+            if (slot != 0 && (slot == hotkeys.CaptureSlot || slot == hotkeys.HistorySlot))
             {
-                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
-                Activate();
-                Notify("history");
+                if (configuringHotkeys && Form.ActiveForm == this) Notify("recorded-hotkey|" + hotkeys.BindingFor(slot));
+                else if (slot == hotkeys.CaptureSlot) BeginRegionCapture();
+                else
+                {
+                    if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                    Activate();
+                    Notify("history");
+                }
             }
         }
         base.WndProc(ref message);
@@ -243,8 +256,7 @@ internal sealed class RedactorWindow : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        UnregisterHotKey(Handle, CaptureKey);
-        UnregisterHotKey(Handle, HistoryKey);
+        hotkeys.Close(Handle);
         var processId = view.CoreWebView2 == null ? 0 : (int)view.CoreWebView2.BrowserProcessId;
         view.Dispose();
         if (processId != 0)

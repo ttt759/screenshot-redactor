@@ -13,6 +13,7 @@ const dialog = $('export-dialog');
 const batchDialog = $('batch-dialog');
 const removeDialog = $('remove-dialog');
 const historyDialog = $('history-dialog');
+const hotkeysDialog = $('hotkeys-dialog');
 const desktop = globalThis.chrome?.webview;
 const corners = ['nw', 'ne', 'sw', 'se'];
 const samples = [
@@ -48,7 +49,7 @@ let previewBoxes = null;
 
 const active = () => entries[index];
 const setDisabled = (id, disabled) => { $(id).disabled = disabled; };
-const openDialog = () => [dialog, batchDialog, removeDialog, historyDialog].find((item) => item.open);
+const openDialog = () => [dialog, batchDialog, removeDialog, historyDialog, hotkeysDialog].find((item) => item.open);
 const sameSize = (first, second) => first.width === second.width && first.height === second.height;
 const sameBox = (first, second) => (first.style ?? 'black') === (second.style ?? 'black') &&
   ['x', 'y', 'width', 'height'].every((key) => first[key] === second[key]);
@@ -783,7 +784,107 @@ $('mask-style').onchange = (event) => {
   if (style === 'mosaic') announce('马赛克可能保留可辨认轮廓，敏感信息建议用纯色遮挡。');
 };
 
+const defaultHotkeys = ['6:120', '6:121'];
+const hotkeyLabels = ['截屏', '截图剪贴板'];
+const hotkeyInputs = [$('bind-capture'), $('bind-history')];
+let savedHotkeys = defaultHotkeys;
+let proposedHotkeys = defaultHotkeys.slice();
+let recordingHotkey = -1;
+let savingHotkeys = false;
+
+function hotkeyText(binding) {
+  const [modifiers, key] = binding.split(':').map(Number);
+  return [modifiers & 2 && 'Ctrl', modifiers & 4 && 'Shift', modifiers & 1 && 'Alt',
+    key >= 112 ? `F${key - 111}` : String.fromCharCode(key)].filter(Boolean).join(' + ');
+}
+
+function renderHotkeys() {
+  hotkeyInputs.forEach((button, index) => {
+    const recording = index === recordingHotkey;
+    button.textContent = recording ? '请按组合键…' : hotkeyText(proposedHotkeys[index]);
+    button.setAttribute('aria-label', `录入${hotkeyLabels[index]}快捷键（${button.textContent}）`);
+    button.setAttribute('aria-pressed', recording);
+    button.disabled = savingHotkeys;
+  });
+  setDisabled('save-hotkeys', savingHotkeys || recordingHotkey >= 0);
+  setDisabled('reset-hotkeys', savingHotkeys);
+  setDisabled('cancel-hotkeys', savingHotkeys);
+}
+
+function hotkeyStatus(message) {
+  const status = $('hotkeys-status');
+  status.textContent = message;
+  status.hidden = !message;
+}
+
+function receiveHotkeys(data) {
+  const saved = data.startsWith('saved-');
+  const [, capture, history] = data.split('|');
+  savedHotkeys = [capture, history];
+  $('capture-screen').title = `区域截屏（${hotkeyText(capture)}）`;
+  $('open-history').title = `截图剪贴板（${hotkeyText(history)}）`;
+  if (!saved) return;
+  savingHotkeys = false;
+  if (hotkeysDialog.open) hotkeysDialog.close();
+  announce('快捷键已保存');
+}
+
 if (desktop) {
+  hotkeysDialog.addEventListener('cancel', (event) => { if (savingHotkeys) event.preventDefault(); });
+  hotkeysDialog.addEventListener('close', () => { if (!hotkeysDialog.open) desktop.postMessage('finish-hotkeys'); });
+  $('configure-hotkeys').onclick = () => {
+    proposedHotkeys = savedHotkeys.slice();
+    recordingHotkey = -1;
+    hotkeyStatus('');
+    renderHotkeys();
+    hotkeysDialog.showModal();
+    desktop.postMessage('configure-hotkeys');
+  };
+  hotkeyInputs.forEach((button, index) => {
+    button.onclick = () => {
+      recordingHotkey = index;
+      hotkeyStatus('');
+      renderHotkeys();
+    };
+    button.onblur = () => {
+      if (recordingHotkey !== index) return;
+      recordingHotkey = -1;
+      renderHotkeys();
+    };
+    button.onkeydown = (event) => {
+      if (recordingHotkey !== index || event.key === 'Tab') return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === 'Escape') {
+        recordingHotkey = -1;
+        hotkeyStatus('');
+      } else if (['Control', 'Alt', 'Shift', 'Meta', 'AltGraph'].includes(event.key)) return;
+      else {
+        const key = event.key.toUpperCase();
+        const code = /^[A-Z0-9]$/.test(key) ? key.charCodeAt(0) : /^F(?:[1-9]|10|11)$/.test(key) ? 111 + Number(key.slice(1)) : 0;
+        if (!code || (!event.ctrlKey && !event.altKey) || event.metaKey || event.getModifierState('AltGraph')) {
+          hotkeyStatus('请按 Ctrl 或 Alt，再加字母、数字或 F1–F11。');
+          return;
+        }
+        proposedHotkeys[index] = `${(event.ctrlKey ? 2 : 0) | (event.shiftKey ? 4 : 0) | (event.altKey ? 1 : 0)}:${code}`;
+        recordingHotkey = -1;
+        hotkeyStatus('');
+      }
+      renderHotkeys();
+    };
+  });
+  $('reset-hotkeys').onclick = () => { proposedHotkeys = defaultHotkeys.slice(); hotkeyStatus(''); renderHotkeys(); };
+  $('cancel-hotkeys').onclick = () => hotkeysDialog.close();
+  $('save-hotkeys').onclick = () => {
+    if (proposedHotkeys[0] === proposedHotkeys[1]) {
+      hotkeyStatus('截屏与截图剪贴板需要使用不同的快捷键。');
+      return;
+    }
+    savingHotkeys = true;
+    hotkeyStatus('正在保存…');
+    renderHotkeys();
+    desktop.postMessage(`save-hotkeys|${proposedHotkeys.join('|')}`);
+  };
   $('capture-tools').hidden = false;
   $('capture-screen').onclick = () => desktop.postMessage('capture');
   $('open-history').onclick = openCaptureHistory;
@@ -803,7 +904,22 @@ if (desktop) {
     desktop.postMessage('clear-captures');
   };
   desktop.addEventListener('message', ({ data }) => {
-    if (data === 'history') openCaptureHistory();
+    if (typeof data !== 'string') return;
+    if (data.startsWith('hotkeys|') || data.startsWith('saved-hotkeys|')) receiveHotkeys(data);
+    else if (data.startsWith('recorded-hotkey|')) {
+      if (hotkeysDialog.open && recordingHotkey >= 0) {
+        proposedHotkeys[recordingHotkey] = data.slice('recorded-hotkey|'.length);
+        recordingHotkey = -1;
+        hotkeyStatus('');
+        renderHotkeys();
+      }
+    }
+    else if (data.startsWith('hotkey-error|')) {
+      savingHotkeys = false;
+      renderHotkeys();
+      if (hotkeysDialog.open) hotkeyStatus(data.slice('hotkey-error|'.length));
+      else announce(data.slice('hotkey-error|'.length));
+    } else if (data === 'history') openCaptureHistory();
     else if (data === 'captured') {
       announce('截图已存入剪贴板历史');
       if (historyDialog.open) loadCaptureHistory();
@@ -814,6 +930,7 @@ if (desktop) {
       else announce(data);
     }
   });
+  desktop.postMessage('get-hotkeys');
 }
 
 let historyLoad = 0;
@@ -837,7 +954,7 @@ async function loadCaptureHistory() {
     const names = await response.json();
     if (revision !== historyLoad || !historyDialog.open) return;
     setDisabled('clear-captures', !names.length);
-    $('capture-status').textContent = names.length ? '' : '还没有截图。按 Ctrl + Shift + F9 开始截屏。';
+    $('capture-status').textContent = names.length ? '' : `还没有截图。按 ${hotkeyText(savedHotkeys[0])} 开始截屏。`;
     list.replaceChildren(...names.map((name) => {
       const row = document.createElement('label');
       const check = document.createElement('input');

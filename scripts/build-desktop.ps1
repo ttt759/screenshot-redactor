@@ -49,7 +49,7 @@ $exe = Join-Path $output 'ScreenshotRedactor.exe'
 & $compiler /nologo /codepage:65001 /target:winexe /platform:x64 /optimize+ "/out:$exe" "/win32icon:$icon" "/win32manifest:$manifest" `
     /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
     "/reference:$(Join-Path $output 'Microsoft.Web.WebView2.Core.dll')" "/reference:$(Join-Path $output 'Microsoft.Web.WebView2.WinForms.dll')" `
-    (Join-Path $root 'desktop/Program.cs') (Join-Path $root 'desktop/RegionCapture.cs') $metadata
+    (Join-Path $root 'desktop/Program.cs') (Join-Path $root 'desktop/RegionCapture.cs') (Join-Path $root 'desktop/CaptureHotkeys.cs') $metadata
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 Copy-Item -LiteralPath (Join-Path $root 'docs') -Destination $output -Recurse -Force
 $portable = Join-Path (Split-Path $output -Parent) "screenshot-redactor-portable-$version-windows-x64.zip"

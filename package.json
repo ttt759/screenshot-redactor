@@ -22,7 +22,7 @@
   },
   "build": {
     "appId": "io.github.ttt759.screenshotredactor",
-    "buildVersion": "0.3.9",
+    "buildVersion": "0.3.10",
     "productName": "截图脱敏助手",
     "electronVersion": "45.3.1",
     "directories": { "output": "release/lightweight" },

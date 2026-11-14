@@ -150,6 +150,12 @@ dialog ul { padding: 10px 12px; list-style: none; margin: 0 0 20px; max-height: 
 dialog li { padding: 5px 0; overflow-wrap: anywhere; font-size: 13px; }
 .dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 #history-dialog { width: min(640px, calc(100vw - 32px)); }
+.hotkey-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px; }
+.hotkey-row button { min-width: 128px; }
+.hotkey-row button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.hotkey-actions { margin-top: 16px; flex-wrap: wrap; }
+.hotkey-actions > :first-child { margin-right: auto; }
+#hotkeys-status { color: var(--accent); }
 .capture-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; max-height: 52dvh; overflow: auto; margin-bottom: 12px; }
 .capture-list label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 5px; cursor: pointer; border: 1px solid var(--line); border-radius: 8px; padding: 6px; font-size: 11px; }
 .capture-list img { grid-column: 1 / -1; grid-row: 1; width: 100%; height: 80px; object-fit: contain; background: #f2eff4; }
