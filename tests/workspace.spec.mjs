@@ -402,8 +402,9 @@ test('keeps preview actions visible on a narrow mobile viewport', async ({ page 
 test('keeps the next review action in view on short screens', async ({ page }) => {
   await page.setViewportSize({ width: 667, height: 375 });
   await openSamples(page);
-  await page.getByRole('button', { name: '成品预览' }).click();
+  await page.getByRole('button', { name: '开始检查' }).click();
   const next = page.getByRole('button', { name: '确认并继续' });
+  await expect(next).toBeInViewport({ ratio: 1 });
   await next.click();
   await expect(page.locator('.file-row').nth(1)).toHaveAttribute('aria-current', 'true');
   await expect(next).toBeInViewport({ ratio: 1 });

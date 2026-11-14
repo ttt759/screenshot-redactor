@@ -692,7 +692,9 @@ function reviewScreenshot(entry) {
   if (position < 0) return;
   if (position === index) changeView('preview');
   else goTo(position, 'preview');
-  ($('confirm-next').disabled ? $('export-all') : $('confirm-next')).focus({ preventScroll: true });
+  const action = $('confirm-next').disabled ? $('preview-button') : $('confirm-next');
+  action.focus({ preventScroll: true });
+  action.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 async function runExport({ targets, batch, filename }) {
@@ -758,6 +760,11 @@ $('confirm-next').onclick = confirmAndContinue;
 $('copy-mask').onclick = openBatchPicker;
 $('undo-batch').onclick = undoBatch;
 $('close-batch').onclick = $('cancel-batch').onclick = () => batchDialog.close();
+batchDialog.addEventListener('close', () => {
+  if (batchDialog.open) return;
+  pendingBatch = null;
+  for (const id of ['batch-mask-map', 'batch-masks', 'batch-targets']) $(id).replaceChildren();
+});
 $('batch-select-all').onchange = (event) => {
   for (const { input } of pendingBatch.targets) {
     if (!input.disabled) input.checked = event.target.checked;
