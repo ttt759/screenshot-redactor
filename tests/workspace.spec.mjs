@@ -6,6 +6,28 @@ import { unzipSync } from 'fflate';
 const assets = ['account.png', 'checkout.jpg', 'receipt.png'];
 const demoCount = 5;
 
+test('gives toolbar buttons hover and press feedback without moving neighboring targets', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await openSamples(page);
+  const draw = page.getByRole('button', { name: '画遮挡框', exact: true });
+  const select = page.getByRole('button', { name: '选择遮挡框', exact: true });
+  const disabled = page.getByRole('button', { name: '撤销', exact: true });
+  const style = (button, key) => button.evaluate((node, property) => getComputedStyle(node)[property], key);
+  const before = await style(draw, 'backgroundColor');
+  const neighbor = await select.boundingBox();
+  await draw.hover();
+  expect(await style(draw, 'backgroundColor')).not.toBe(before);
+  const hoverShadow = await style(draw, 'boxShadow');
+  await page.mouse.down();
+  expect(await style(draw, 'boxShadow')).not.toBe(hoverShadow);
+  await page.mouse.up();
+  expect(await select.boundingBox()).toEqual(neighbor);
+  await expect(disabled).toBeDisabled();
+  const disabledBefore = await style(disabled, 'backgroundColor');
+  await disabled.hover();
+  expect(await style(disabled, 'backgroundColor')).toBe(disabledBefore);
+});
+
 test('Ctrl+wheel zooms the screenshot around the pointer while the interface keeps its scale', async ({ page }) => {
   await openSamples(page);
   const artboard = page.locator('#artboard');
