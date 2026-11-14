@@ -54,7 +54,7 @@
         <div class="toolset" id="drawing-tools">
           <button class="button tool" id="draw" data-icon="box" aria-pressed="true" aria-keyshortcuts="R" title="画遮挡框 (R)" disabled>画遮挡框<kbd aria-hidden="true">R</kbd></button>
           <button class="button icon-button" id="select" data-icon="cursor" aria-label="选择遮挡框" aria-pressed="false" title="选择遮挡框 (V)" disabled></button>
-          <button class="button icon-button" id="pan" data-icon="hand" aria-label="平移画布" aria-pressed="false" title="平移画布 (H)" disabled></button>
+          <button class="button icon-button" id="pan" data-icon="hand" aria-label="平移画布" aria-pressed="false" title="平移画布 (H)，按住空格可临时平移" disabled></button>
           <div class="tool-divider"></div>
           <button class="button icon-button" id="undo" data-icon="undo" aria-label="撤销" title="撤销 (Ctrl/⌘ + Z)" disabled></button>
           <button class="button icon-button" id="delete" data-icon="trash" aria-label="删除遮挡" title="删除遮挡 (Delete)" disabled></button>
@@ -92,6 +92,10 @@
         </div>
         <div id="drop-overlay" class="drop-overlay" hidden><span data-icon="upload">松开以导入截图</span></div>
       </div>
+      <section id="import-errors" class="import-errors" aria-label="导入失败详情" hidden>
+        <div><strong id="import-summary" role="status"></strong><button id="dismiss-import-errors" class="button icon-button" data-icon="close" aria-label="关闭导入提示"></button></div>
+        <ul id="import-failures"></ul>
+      </section>
 
       <footer id="editor-foot" class="editor-foot" hidden>
         <div class="review-actions">

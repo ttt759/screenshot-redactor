@@ -39,8 +39,13 @@ try {
   assert.deepEqual(await page.evaluate(() => [isSecureContext, typeof window.require, typeof crypto.randomUUID]), [true, 'undefined', 'function']);
   assert.equal(await page.evaluate(async () => (await fetch('/package.json')).status), 404);
 
-  const input = page.locator('#file-input');
-  await input.setInputFiles(['account.png', 'account-team.png'].map((name) => resolve('docs/samples', name)));
+  const stage = await page.locator('#stage').boundingBox();
+  const drag = await context.newCDPSession(page);
+  const dropPoint = { x: stage.x + stage.width / 2, y: stage.y + stage.height / 2 };
+  const dropData = { items: [], files: ['account.png', 'account-team.png'].map((name) => resolve('docs/samples', name)), dragOperationsMask: 1 };
+  for (const type of ['dragEnter', 'dragOver']) await drag.send('Input.dispatchDragEvent', { type, ...dropPoint, data: dropData });
+  await page.getByText('松开以导入截图', { exact: true }).waitFor();
+  await drag.send('Input.dispatchDragEvent', { type: 'drop', ...dropPoint, data: dropData });
   await page.getByRole('button', { name: 'account-team.png 待检查' }).waitFor();
   const button = (name) => page.getByRole('button', { name, exact: true });
   const artboard = page.locator('#artboard');

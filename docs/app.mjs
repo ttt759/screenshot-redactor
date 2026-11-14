@@ -31,6 +31,7 @@ let view = 'edit';
 let selected = null;
 let zoom = null;
 let gesture = null;
+let spacePan = false;
 let busy = false;
 let importsPending = 0;
 let queue = Promise.resolve();
@@ -181,7 +182,7 @@ function renderEditor() {
   $('draw').setAttribute('aria-pressed', editing && tool === 'draw');
   $('select').setAttribute('aria-pressed', editing && tool === 'select');
   $('pan').setAttribute('aria-pressed', editing && tool === 'pan');
-  artboard.dataset.tool = editing ? tool : 'preview';
+  renderCanvasTool();
   preview.hidden = !entry || editing;
   source.hidden = !editing;
   masks.hidden = !editing;
@@ -517,23 +518,35 @@ stage.addEventListener('wheel', (event) => {
   changeZoom(clamp(-pixels / 100, -6, 6), event);
 }, { passive: false });
 
+function renderCanvasTool() {
+  artboard.dataset.tool = spacePan || gesture?.mode === 'pan' ? 'pan' : view === 'edit' ? tool : 'preview';
+  stage.classList.toggle('panning', spacePan || gesture?.mode === 'pan');
+}
+
+function stopSpacePan() {
+  spacePan = false;
+  renderCanvasTool();
+}
+
 function point(event, entry) {
   const bounds = artboard.getBoundingClientRect();
   return { x: (event.clientX - bounds.left) * entry.width / bounds.width,
     y: (event.clientY - bounds.top) * entry.height / bounds.height };
 }
 
-artboard.addEventListener('pointerdown', (event) => {
+stage.addEventListener('pointerdown', (event) => {
   const entry = active();
-  if (!entry || view !== 'edit' || event.button !== 0 || gesture) return;
-  if (tool === 'pan') {
+  if (!entry || event.button !== 0 || gesture) return;
+  if (spacePan || (view === 'edit' && tool === 'pan')) {
     if (event.pointerType === 'touch') return;
     gesture = { mode: 'pan', pointer: event.pointerId, screenX: event.clientX, screenY: event.clientY,
       left: stage.scrollLeft, top: stage.scrollTop };
     artboard.setPointerCapture(event.pointerId);
+    renderCanvasTool();
     event.preventDefault();
     return;
   }
+  if (view !== 'edit' || !artboard.contains(event.target)) return;
   const start = point(event, entry);
   const mask = event.target.closest('.mask');
   const handle = event.target.dataset.handle;
@@ -583,6 +596,7 @@ artboard.addEventListener('pointerup', (event) => {
   if (gesture?.pointer !== event.pointerId) return;
   if (gesture.mode === 'pan') {
     gesture = null;
+    renderCanvasTool();
     return;
   }
   updateGesture(event);
@@ -616,14 +630,12 @@ function addFiles(files) {
   announce(`正在读取 ${files.length} 张截图…`);
   enqueue(async () => {
     const imported = [];
-    let failures = 0;
-    let animated = false;
+    const failures = [];
     for (const file of files) {
       try {
         imported.push(makeEntry(file.name, await loadFile(file)));
       } catch (error) {
-        failures++;
-        animated ||= error.message === '暂不支持动态 PNG';
+        failures.push({ name: file.name, reason: error instanceof Error ? error.message : '无法读取图片' });
       }
     }
     if (imported.length) {
@@ -638,13 +650,28 @@ function addFiles(files) {
       tool = 'draw';
       goTo(firstNew, 'edit');
     }
-    if (failures) announce(`${failures} 张图片无法导入。${animated ? '暂不支持动态 PNG。' : '请使用有效的 PNG 或 JPG 文件。'}`);
-    else announce(`已导入 ${imported.length} 张截图`);
+    showImportFailures(failures);
+    if (imported.length) announce(`已导入 ${imported.length} 张截图`);
+    else $('toast').hidden = true;
   });
   queue = queue.finally(() => {
     importsPending--;
     renderEditor();
   });
+}
+
+function showImportFailures(failures) {
+  $('import-errors').hidden = !failures.length;
+  $('import-summary').textContent = `${failures.length} 张图片无法导入`;
+  $('import-failures').replaceChildren(...failures.map(({ name, reason }) => {
+    const row = document.createElement('li');
+    const file = document.createElement('strong');
+    const error = document.createElement('span');
+    file.textContent = name;
+    error.textContent = reason;
+    row.append(file, error);
+    return row;
+  }));
 }
 
 function addSamples() {
@@ -718,6 +745,10 @@ async function runExport({ targets, batch, filename }) {
 }
 
 for (const id of ['import', 'empty-import']) $(id).onclick = () => $('file-input').click();
+$('dismiss-import-errors').onclick = () => {
+  showImportFailures([]);
+  $('import').focus({ preventScroll: true });
+};
 $('file-input').onchange = (event) => {
   addFiles(Array.from(event.target.files));
   event.target.value = '';
@@ -800,6 +831,10 @@ document.addEventListener('paste', (event) => {
 });
 
 const hasFiles = (event) => Array.from(event.dataTransfer?.types ?? []).includes('Files');
+function clearDropFeedback() {
+  dragDepth = 0;
+  $('drop-overlay').hidden = true;
+}
 document.addEventListener('dragenter', (event) => {
   if (!hasFiles(event)) return;
   event.preventDefault();
@@ -812,6 +847,7 @@ document.addEventListener('dragover', (event) => {
   if (!hasFiles(event)) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = openDialog() ? 'none' : 'copy';
+  $('drop-overlay').hidden = Boolean(openDialog());
 });
 document.addEventListener('dragleave', (event) => {
   if (!hasFiles(event)) return;
@@ -821,16 +857,40 @@ document.addEventListener('dragleave', (event) => {
 document.addEventListener('drop', (event) => {
   if (!hasFiles(event)) return;
   event.preventDefault();
-  dragDepth = 0;
-  $('drop-overlay').hidden = true;
-  if (!openDialog()) addFiles(Array.from(event.dataTransfer.files));
+  clearDropFeedback();
+  if (openDialog()) return;
+  const files = Array.from(event.dataTransfer.files);
+  if (files.length) addFiles(files);
+  else announce('未收到图片文件，请从资源管理器拖入 PNG 或 JPG。');
+});
+
+window.addEventListener('blur', () => {
+  stopSpacePan();
+  clearDropFeedback();
+});
+document.addEventListener('keyup', (event) => {
+  if (event.code === 'Space' && spacePan) {
+    event.preventDefault();
+    stopSpacePan();
+  }
 });
 
 document.addEventListener('keydown', (event) => {
+  if (event.code === 'Space' && spacePan) {
+    event.preventDefault();
+    return;
+  }
   if (event.defaultPrevented || event.isComposing || openDialog() || !active() || gesture) return;
   const key = event.key.toLowerCase();
   const plainKey = !event.ctrlKey && !event.metaKey && !event.altKey;
   if (plainKey && !event.shiftKey) {
+    if (event.code === 'Space' && (stage.matches(':hover') || stage.contains(document.activeElement)) &&
+        !event.target.closest('input, textarea, select, [contenteditable]')) {
+      event.preventDefault();
+      spacePan = true;
+      renderCanvasTool();
+      return;
+    }
     if (key === '0') {
       event.preventDefault();
       changeZoom('original');

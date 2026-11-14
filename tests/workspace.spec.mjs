@@ -6,6 +6,43 @@ import { unzipSync } from 'fflate';
 const assets = ['account.png', 'checkout.jpg', 'receipt.png'];
 const demoCount = 5;
 
+test('highlights the canvas during a drag and reports individual import failures', async ({ page }) => {
+  await page.goto('/');
+  const transfer = await page.evaluateHandle(() => {
+    const items = new DataTransfer();
+    items.items.add(new File(['invalid image'], 'wrong-format.webp', { type: 'image/webp' }));
+    return items;
+  });
+  await page.locator('#stage').dispatchEvent('dragover', { dataTransfer: transfer });
+  await expect(page.getByText('松开以导入截图')).toBeVisible();
+  await page.locator('#stage').dispatchEvent('drop', { dataTransfer: transfer });
+  await expect(page.getByText('松开以导入截图')).toBeHidden();
+  await expect(page.getByText('wrong-format.webp')).toBeVisible();
+  await expect(page.getByText('仅支持 PNG 和 JPG', { exact: true })).toBeVisible();
+});
+
+test('Space temporarily pans the zoomed canvas without drawing a mask', async ({ page }) => {
+  await openSamples(page);
+  const draw = page.getByRole('button', { name: '画遮挡框', exact: true });
+  await draw.click();
+  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: '放大', exact: true }).click();
+  const stage = page.locator('#stage');
+  const area = await stage.boundingBox();
+  const from = { x: area.x + area.width / 2, y: area.y + area.height / 2 };
+  const masks = page.locator('#masks .mask');
+  const count = await masks.count();
+  const before = await stage.evaluate((node) => node.scrollLeft);
+  await page.mouse.move(from.x, from.y);
+  await page.keyboard.down('Space');
+  await drag(page, from, { x: from.x - 80, y: from.y - 30 });
+  await page.keyboard.up('Space');
+  expect(await stage.evaluate((node) => node.scrollLeft)).toBeGreaterThan(before + 50);
+  await expect(masks).toHaveCount(count);
+  await expect(draw).toHaveAttribute('aria-pressed', 'true');
+  await drag(page, from, { x: from.x - 40, y: from.y - 25 });
+  await expect(masks).toHaveCount(count + 1);
+});
+
 test('gives toolbar buttons hover and press feedback without moving neighboring targets', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await openSamples(page);
@@ -345,7 +382,7 @@ test('rejects animated PNG so editing and export cannot show different frames', 
   await openSamples(page);
   const animated = 'iVBORw0KGgoAAAANSUhEUgAAAAMAAAADCAIAAADZSiLoAAAACGFjVEwAAAACAAAAAPONk3AAAAAaZmNUTAAAAAAAAAADAAAAAwAAAAAAAAAAAAEABAAAjNOqugAAABFJREFUeJxj/M8ABUwwBhILAB1bAQXoN6jFAAAAGmZjVEwAAAABAAAAAwAAAAMAAAAAAAAAAAABAAQAABegQG4AAAAXZmRBVAAAAAJ4nGNkYPjPAAZMEAqFBQAbXQEFbkuO+wAAAABJRU5ErkJggg==';
   await page.locator('#file-input').setInputFiles({ name: 'animated.png', mimeType: 'image/png', buffer: Buffer.from(animated, 'base64') });
-  await expect(page.getByRole('status')).toContainText('动态 PNG');
+  await expect(page.getByText('暂不支持动态 PNG', { exact: true })).toBeVisible();
   await expect(page.locator('.file-row')).toHaveCount(demoCount);
 });
 
