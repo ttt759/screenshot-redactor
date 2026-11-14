@@ -921,7 +921,7 @@ if (desktop) {
       else announce(data.slice('hotkey-error|'.length));
     } else if (data === 'history') openCaptureHistory();
     else if (data === 'captured') {
-      announce('截图已存入剪贴板历史');
+      announce('截图已复制，可按 Ctrl + V 粘贴');
       if (historyDialog.open) loadCaptureHistory();
     } else if (data === 'history-cleared') {
       if (historyDialog.open) loadCaptureHistory();

@@ -9,7 +9,7 @@
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "playwright test",
     "desktop": "pwsh -NoProfile -File scripts/build-desktop.ps1",
-    "test:desktop": "node tests/desktop.smoke.mjs",
+    "test:desktop": "pwsh -NoProfile -File scripts/test-native-capture.ps1 && node tests/desktop.smoke.mjs",
     "package:win": "npm run desktop && electron-builder --win nsis --x64 --prepackaged release/lightweight/win-unpacked --publish never"
   },
   "devDependencies": {
@@ -22,7 +22,7 @@
   },
   "build": {
     "appId": "io.github.ttt759.screenshotredactor",
-    "buildVersion": "0.3.11",
+    "buildVersion": "0.3.12",
     "productName": "截图脱敏助手",
     "electronVersion": "45.3.1",
     "directories": { "output": "release/lightweight" },

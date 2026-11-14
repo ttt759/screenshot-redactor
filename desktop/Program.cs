@@ -38,6 +38,7 @@ internal sealed class RedactorWindow : Form
     private readonly CaptureHotkeys hotkeys = new CaptureHotkeys(Path.Combine(DataFolder, "hotkeys.txt"));
     private CoreWebView2Environment environment;
     private bool captureInProgress;
+    private bool restoreWithoutActivation;
     private bool configuringHotkeys;
     private static readonly Dictionary<string, string> Assets = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -163,6 +164,8 @@ internal sealed class RedactorWindow : Form
         if (captureInProgress || IsDisposed) return;
         captureInProgress = true;
         var state = WindowState;
+        var foreground = CaptureWindows.GetForegroundWindow();
+        var returnToApp = foreground == Handle;
         string feedback = null;
         try
         {
@@ -170,32 +173,39 @@ internal sealed class RedactorWindow : Form
             await Task.Delay(140);
             if (IsDisposed) return;
             var bounds = SystemInformation.VirtualScreen;
+            var windows = CaptureWindows.Snapshot(Handle);
             using (var screen = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppRgb))
             {
                 using (var graphics = Graphics.FromImage(screen)) graphics.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
-                using (var picker = new RegionCapture(screen, bounds))
+                using (var picker = new RegionCapture(screen, bounds, windows))
                 {
                     if (picker.ShowDialog() == DialogResult.OK)
                     {
+                        feedback = "截图已复制，可按 Ctrl + V 粘贴，但未能保存到截图历史。";
                         using (var result = picker.Result) captureHistory.Save(result);
                         feedback = "captured";
                     }
                 }
             }
         }
-        catch (Exception) { feedback = "无法截屏或保存截图，请重试。"; }
+        catch (Exception) { if (feedback == null) feedback = "无法截屏，请重试。"; }
         finally
         {
             captureInProgress = false;
             if (!IsDisposed)
             {
                 WindowState = state;
-                Show();
-                if (state != FormWindowState.Minimized) Activate();
+                restoreWithoutActivation = !returnToApp;
+                try { Show(); }
+                finally { restoreWithoutActivation = false; }
+                if (returnToApp && state != FormWindowState.Minimized) Activate();
+                else if (foreground != IntPtr.Zero) CaptureWindows.SetForegroundWindow(foreground);
                 if (feedback != null) Notify(feedback);
             }
         }
     }
+
+    protected override bool ShowWithoutActivation { get { return restoreWithoutActivation; } }
 
     private void ServeLocalAsset(object sender, CoreWebView2WebResourceRequestedEventArgs args)
     {
