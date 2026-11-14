@@ -59,11 +59,17 @@ internal sealed class CaptureHistory
 
 internal sealed class RegionCapture : Form
 {
+    private static readonly Color Surface = Color.FromArgb(34, 33, 40);
+    private static readonly Color Accent = Color.FromArgb(255, 141, 168);
+    private static readonly Color GrayMask = Color.FromArgb(72, 75, 82);
+    private const string SelectHint = "单击选窗口   拖动框选   Esc 取消";
+    private const TextFormatFlags CenterText = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix;
     private readonly Bitmap screen;
     private readonly Rectangle desktop;
     private readonly Rectangle[] windows;
     private readonly List<Mark> marks = new List<Mark>();
     private readonly FlowLayoutPanel toolbar;
+    private readonly ToolTip tips;
     private readonly Button black, white, gray, arrow, undo;
     private Point? anchor;
     private bool editing, dragging, drawingArrow;
@@ -71,6 +77,8 @@ internal sealed class RegionCapture : Form
     private Rectangle hover;
     private Rectangle selection;
     private Rectangle toolbarArea;
+    private Rectangle instructions;
+    private Rectangle hintMonitor;
     private bool toolbarAbove;
     private Mark draft;
     internal Bitmap Result { get; private set; }
@@ -89,35 +97,64 @@ internal sealed class RegionCapture : Form
         Cursor = Cursors.Cross;
         KeyPreview = true;
         DoubleBuffered = true;
+        tips = new ToolTip { InitialDelay = 350, ReshowDelay = 100 };
+        Disposed += (s, e) => tips.Dispose();
         toolbar = new FlowLayoutPanel {
             AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false,
-            BackColor = Color.FromArgb(34, 33, 40), Padding = new Padding(5), Cursor = Cursors.Default, Visible = false
+            BackColor = Surface, Padding = new Padding(5), Cursor = Cursors.Default, Visible = false,
+            AccessibleName = "截图编辑工具栏"
         };
-        black = AddButton("黑色", () => ChooseTool(Color.Black, false));
-        white = AddButton("白色", () => ChooseTool(Color.White, false));
-        gray = AddButton("深灰", () => ChooseTool(Color.FromArgb(72, 75, 82), false));
-        arrow = AddButton("箭头", () => ChooseTool(maskColor, true));
-        undo = AddButton("撤销", () => TryUndo());
-        AddButton("重选", ResetSelection);
-        AddButton("移位", MoveToolbar);
-        AddButton("取消", () => DialogResult = DialogResult.Cancel);
-        AddButton("复制 ↵", Finish);
+        black = AddSwatch(Color.Black, "黑色", "1");
+        white = AddSwatch(Color.White, "白色", "2");
+        gray = AddSwatch(GrayMask, "深灰", "3");
+        arrow = AddButton("箭头", "画箭头（4）", () => ChooseTool(maskColor, true));
+        undo = AddButton("撤销", "撤销上一步（Ctrl + Z）", () => TryUndo());
+        AddButton("重选", "重新框选（R、右键）", ResetSelection);
+        AddButton("移位", "移动工具栏（T）", MoveToolbar).AccessibleName = "移动工具栏";
+        AddButton("取消", "取消截屏（Esc）", () => DialogResult = DialogResult.Cancel);
+        var copy = AddButton("复制", "复制到系统剪贴板（Enter、Ctrl + C）", Finish);
+        copy.Width += 12;
+        copy.ForeColor = Color.FromArgb(43, 18, 31);
+        copy.BackColor = Accent;
+        copy.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 178, 197);
+        copy.FlatAppearance.MouseDownBackColor = Color.FromArgb(233, 115, 145);
         Controls.Add(toolbar);
         ChooseTool(Color.Black, false);
-        Shown += (s, e) => { Bounds = desktop; UpdateHover(PointToClient(MousePosition)); Activate(); };
+        Shown += (s, e) => { Bounds = desktop; UpdatePointer(PointToClient(MousePosition)); Activate(); };
     }
 
-    private Button AddButton(string label, Action action)
+    private Button AddButton(string label, string hint, Action action)
     {
+        var measured = TextRenderer.MeasureText(label, Font, Size.Empty, TextFormatFlags.NoPrefix);
         var button = new Button {
-            Text = label, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            FlatStyle = FlatStyle.Flat, Padding = new Padding(6, 3, 6, 3), Margin = new Padding(2),
-            ForeColor = Color.White, BackColor = toolbar.BackColor, UseVisualStyleBackColor = false
+            Text = label, Size = new Size(Math.Max(32, measured.Width + 16), Math.Max(32, Font.Height + 12)),
+            FlatStyle = FlatStyle.Flat, Margin = new Padding(2), ForeColor = Color.White, BackColor = Surface,
+            UseVisualStyleBackColor = false, Cursor = Cursors.Hand, AccessibleName = label, AccessibleDescription = hint
         };
         button.FlatAppearance.BorderSize = 0;
         button.FlatAppearance.MouseOverBackColor = Color.FromArgb(70, 66, 79);
+        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(90, 75, 90);
+        button.Paint += (s, e) => {
+            if (button.Enabled) return;
+            using (var brush = new SolidBrush(Surface)) e.Graphics.FillRectangle(brush, button.ClientRectangle);
+            TextRenderer.DrawText(e.Graphics, button.Text, button.Font, button.ClientRectangle, Color.FromArgb(153, 146, 158), CenterText);
+        };
         button.Click += (s, e) => action();
+        tips.SetToolTip(button, hint);
         toolbar.Controls.Add(button);
+        return button;
+    }
+
+    private Button AddSwatch(Color color, string name, string key)
+    {
+        var button = AddButton(string.Empty, name + "遮挡（" + key + "）", () => ChooseTool(color, false));
+        button.AccessibleName = name + "遮挡";
+        button.Paint += (s, e) => {
+            int size = 14;
+            var square = new Rectangle((button.Width - size) / 2, (button.Height - size) / 2, size, size);
+            using (var brush = new SolidBrush(color)) e.Graphics.FillRectangle(brush, square);
+            using (var pen = new Pen(Color.FromArgb(169, 160, 174))) e.Graphics.DrawRectangle(pen, square);
+        };
         return button;
     }
 
@@ -125,30 +162,57 @@ internal sealed class RegionCapture : Form
     {
         maskColor = color;
         drawingArrow = useArrow;
-        foreach (var button in new[] { black, white, gray, arrow }) button.BackColor = toolbar.BackColor;
         var selected = useArrow ? arrow : color == Color.Black ? black : color == Color.White ? white : gray;
-        selected.BackColor = Color.FromArgb(99, 56, 77);
+        foreach (var button in new[] { black, white, gray, arrow })
+        {
+            var active = button == selected;
+            button.BackColor = active ? Color.FromArgb(99, 56, 77) : Surface;
+            button.FlatAppearance.BorderSize = active ? 1 : 0;
+            button.FlatAppearance.BorderColor = Accent;
+            var hint = tips.GetToolTip(button);
+            button.AccessibleDescription = active ? hint + "，已选中" : hint;
+            button.Invalidate();
+        }
     }
+
+    protected override void OnPaintBackground(PaintEventArgs e) { }
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        e.Graphics.DrawImageUnscaled(screen, 0, 0);
-        using (var shade = new SolidBrush(Color.FromArgb(120, 19, 17, 24))) e.Graphics.FillRectangle(shade, ClientRectangle);
+        var clip = Rectangle.Intersect(e.ClipRectangle, new Rectangle(Point.Empty, screen.Size));
+        if (clip.Width <= 0 || clip.Height <= 0) return;
+        e.Graphics.DrawImage(screen, clip, clip, GraphicsUnit.Pixel);
+        using (var shade = new SolidBrush(Color.FromArgb(120, 19, 17, 24))) e.Graphics.FillRectangle(shade, clip);
         var visible = editing || dragging ? selection : hover;
         if (visible.Width > 0 && visible.Height > 0)
         {
-            e.Graphics.DrawImage(screen, visible, visible, GraphicsUnit.Pixel);
+            var pixels = Rectangle.Intersect(clip, visible);
+            if (pixels.Width > 0 && pixels.Height > 0) e.Graphics.DrawImage(screen, pixels, pixels, GraphicsUnit.Pixel);
             if (editing) DrawMarks(e.Graphics);
-            using (var border = new Pen(Color.FromArgb(255, 141, 168), 2))
+            using (var border = new Pen(Accent, 2))
                 e.Graphics.DrawRectangle(border, visible.X, visible.Y, visible.Width - 1, visible.Height - 1);
+            var label = SizeLabel(visible);
+            if (!editing || label.Bottom <= visible.Top)
+                PaintLabel(e.Graphics, visible.Width + " × " + visible.Height, label);
         }
         if (editing || dragging) return;
-        var monitor = Screen.FromPoint(Control.MousePosition).WorkingArea;
-        var local = PointToClient(monitor.Location);
-        const int hintWidth = 340;
-        var banner = new Rectangle(local.X + Math.Max(6, (monitor.Width - hintWidth) / 2), local.Y + 24, hintWidth, 38);
-        using (var background = new SolidBrush(Color.FromArgb(34, 33, 40))) e.Graphics.FillRectangle(background, banner);
-        TextRenderer.DrawText(e.Graphics, "单击选窗口 · 拖动选区域 · Esc 取消", Font, banner, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        PaintLabel(e.Graphics, SelectHint, instructions);
+    }
+
+    private void PaintLabel(Graphics graphics, string text, Rectangle bounds)
+    {
+        using (var background = new SolidBrush(Surface)) graphics.FillRectangle(background, bounds);
+        TextRenderer.DrawText(graphics, text, Font, bounds, Color.White, CenterText);
+    }
+
+    private Rectangle SizeLabel(Rectangle rect)
+    {
+        var dimensions = rect.Width + " × " + rect.Height;
+        var size = TextRenderer.MeasureText(dimensions, Font);
+        int width = size.Width + 12, height = size.Height + 6;
+        var y = rect.Top - height - 5;
+        if (y < 0) y = rect.Top + 5;
+        return new Rectangle(Math.Max(0, Math.Min(rect.Left + 3, ClientSize.Width - width)), y, width, height);
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -163,30 +227,38 @@ internal sealed class RegionCapture : Form
         if (editing && !selection.Contains(e.Location)) return;
         anchor = e.Location;
         Capture = true;
+        Cursor = Cursors.Cross;
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         if (!anchor.HasValue)
         {
-            if (!editing) UpdateHover(e.Location);
+            UpdatePointer(e.Location);
             return;
         }
         var start = anchor.Value;
         if (editing)
         {
+            InvalidateMark(draft);
             var end = new Point(Math.Max(selection.Left, Math.Min(e.X, selection.Right)),
                 Math.Max(selection.Top, Math.Min(e.Y, selection.Bottom)));
             draft = new Mark(start, end, maskColor, drawingArrow);
+            InvalidateMark(draft);
         }
         else
         {
+            var previous = dragging ? selection : hover;
             var threshold = SystemInformation.DragSize;
+            var wasDragging = dragging;
             dragging = dragging || Math.Abs(e.X - start.X) >= Math.Max(2, threshold.Width / 2) ||
                 Math.Abs(e.Y - start.Y) >= Math.Max(2, threshold.Height / 2);
-            if (dragging) selection = Rectangle.Intersect(ClientRectangle, Between(start, e.Location));
+            if (!dragging) return;
+            selection = Rectangle.Intersect(ClientRectangle, Between(start, e.Location));
+            InvalidateSelection(previous);
+            InvalidateSelection(selection);
+            if (!wasDragging) Invalidate(instructions);
         }
-        Invalidate();
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
@@ -201,7 +273,7 @@ internal sealed class RegionCapture : Form
             if (draft.IsVisible) marks.Add(draft);
             draft = null;
             undo.Enabled = marks.Count > 0;
-            Invalidate();
+            UpdatePointer(e.Location);
             return;
         }
         if (!dragging) selection = CaptureWindows.At(windows, desktop, start);
@@ -209,6 +281,7 @@ internal sealed class RegionCapture : Form
         if (selection.Width < 3 || selection.Height < 3) { ResetSelection(); return; }
         editing = true;
         ShowToolbar(e.Location);
+        UpdatePointer(e.Location);
         Invalidate();
     }
 
@@ -222,12 +295,44 @@ internal sealed class RegionCapture : Form
         Invalidate();
     }
 
-    private void UpdateHover(Point location)
+    private void UpdatePointer(Point location)
     {
+        if (editing)
+        {
+            Cursor = selection.Contains(location) ? Cursors.Cross : Cursors.Default;
+            return;
+        }
+        var screenPoint = PointToScreen(location);
+        if (!hintMonitor.Contains(screenPoint) || instructions.IsEmpty)
+        {
+            Invalidate(instructions);
+            var monitor = Screen.FromPoint(screenPoint);
+            hintMonitor = monitor.Bounds;
+            var area = monitor.WorkingArea;
+            var origin = PointToClient(area.Location);
+            var hintSize = TextRenderer.MeasureText(SelectHint, Font);
+            var width = Math.Min(area.Width, hintSize.Width + 24);
+            instructions = new Rectangle(origin.X + (area.Width - width) / 2, origin.Y + 20, width, hintSize.Height + 14);
+            Invalidate(instructions);
+        }
         var hit = CaptureWindows.At(windows, desktop, location);
+        Cursor = hit.IsEmpty ? Cursors.Cross : Cursors.Hand;
         if (hit == hover) return;
+        InvalidateSelection(hover);
         hover = hit;
-        Invalidate();
+        InvalidateSelection(hover);
+    }
+
+    private void InvalidateSelection(Rectangle rect)
+    {
+        if (rect.Width <= 0 || rect.Height <= 0) return;
+        Invalidate(Rectangle.Inflate(rect, 2, 2));
+        Invalidate(SizeLabel(rect));
+    }
+
+    private void InvalidateMark(Mark mark)
+    {
+        if (mark != null && mark.IsVisible) Invalidate(Rectangle.Intersect(selection, mark.PaintBounds));
     }
 
     private void ShowToolbar(Point location)
@@ -267,16 +372,16 @@ internal sealed class RegionCapture : Form
         marks.Clear();
         selection = Rectangle.Empty;
         toolbar.Visible = false;
-        UpdateHover(PointToClient(MousePosition));
+        UpdatePointer(PointToClient(MousePosition));
         Invalidate();
     }
 
     internal bool TryUndo()
     {
         if (marks.Count == 0) return false;
+        InvalidateMark(marks[marks.Count - 1]);
         marks.RemoveAt(marks.Count - 1);
         undo.Enabled = marks.Count > 0;
-        Invalidate();
         return true;
     }
 
@@ -323,6 +428,16 @@ internal sealed class RegionCapture : Form
             case Keys.Escape: DialogResult = DialogResult.Cancel; return true;
             case Keys.Enter: case Keys.Control | Keys.C: Finish(); return true;
             case Keys.Control | Keys.Z: TryUndo(); return true;
+        }
+        if (!editing || anchor.HasValue) return base.ProcessCmdKey(ref message, key);
+        switch (key)
+        {
+            case Keys.D1: case Keys.NumPad1: ChooseTool(Color.Black, false); return true;
+            case Keys.D2: case Keys.NumPad2: ChooseTool(Color.White, false); return true;
+            case Keys.D3: case Keys.NumPad3: ChooseTool(GrayMask, false); return true;
+            case Keys.D4: case Keys.NumPad4: ChooseTool(maskColor, true); return true;
+            case Keys.R: ResetSelection(); return true;
+            case Keys.T: MoveToolbar(); return true;
             default: return base.ProcessCmdKey(ref message, key);
         }
     }
@@ -349,6 +464,8 @@ internal sealed class RegionCapture : Form
 
         internal bool IsVisible { get { return arrow ? Math.Abs(end.X - start.X) + Math.Abs(end.Y - start.Y) >= 6 :
             Math.Abs(end.X - start.X) >= 2 && Math.Abs(end.Y - start.Y) >= 2; } }
+
+        internal Rectangle PaintBounds { get { return Rectangle.Inflate(Between(start, end), 24, 24); } }
 
         internal void Draw(Graphics graphics)
         {

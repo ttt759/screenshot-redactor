@@ -1,6 +1,8 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Linq;
+using System.Reflection;
 using System.Windows.Forms;
 
 internal static class NativeCaptureTest
@@ -32,12 +34,31 @@ internal static class NativeCaptureTest
         {
             using (var graphics = Graphics.FromImage(screen)) graphics.Clear(Color.CornflowerBlue);
             form.CreateControl();
+            Mouse(form, 0x0200, 0, 80, 65);
+            Check(form.Cursor == Cursors.Hand, "Hovering a selectable window must indicate click-to-select.");
             Mouse(form, 0x0201, 1, 80, 65);
             Mouse(form, 0x0202, 0, 80, 65);
             Check(form.DialogResult == DialogResult.None, "Selecting a window should leave the editor open.");
+            var toolbar = form.Controls[0];
+            var buttons = toolbar.Controls.OfType<Button>().ToArray();
+            var undo = buttons.Single(button => button.AccessibleName == "撤销");
+            var black = buttons.Single(button => button.AccessibleName == "黑色遮挡");
+            var white = buttons.Single(button => button.AccessibleName == "白色遮挡");
+            var layout = buttons.Select(button => button.Bounds).ToArray();
+            var firstPosition = toolbar.Location;
+            Key(form, Keys.T);
+            Check(toolbar.Location != firstPosition, "T must move the toolbar to the other side of the selection.");
+            Key(form, Keys.T);
+            Check(toolbar.Location == firstPosition, "The toolbar must return to its original position on the second press.");
+            Check(!undo.Enabled, "Undo must be unavailable in an untouched selection.");
+            Check(black.FlatAppearance.BorderSize == 1 && white.FlatAppearance.BorderSize == 0,
+                "Black must be the initially selected tool.");
+            Mouse(form, 0x0200, 0, 12, 12);
+            Check(form.Cursor == Cursors.Default, "The pointer must indicate when drawing is unavailable outside the crop.");
             Drag(form, new Point(60, 50), new Point(112, 92));
+            Check(undo.Enabled, "Undo must become available after drawing.");
             Drag(form, new Point(130, 100), new Point(165, 130));
-            Check(form.TryUndo(), "The most recent mask should be undoable.");
+            Key(form, Keys.Control | Keys.Z);
             using (var edited = form.RenderSelection())
             {
                 Check(edited.Size == crop.Size, "The rendered window must retain its original pixel dimensions.");
@@ -45,6 +66,20 @@ internal static class NativeCaptureTest
                 Check(edited.GetPixel(95, 75).ToArgb() == Color.CornflowerBlue.ToArgb(), "Undo must remove the second mask.");
                 Check(edited.GetPixel(0, 0).ToArgb() == Color.CornflowerBlue.ToArgb(), "Selection outlines must stay out of the crop.");
             }
+            Key(form, Keys.D2);
+            Check(black.FlatAppearance.BorderSize == 0 && white.FlatAppearance.BorderSize == 1,
+                "Changing tools must move the selection outline to the new tool.");
+            Check(layout.SequenceEqual(buttons.Select(button => button.Bounds)), "Changing tools must not move neighboring buttons.");
+            Drag(form, new Point(130, 100), new Point(165, 130));
+            using (var edited = form.RenderSelection())
+                Check(edited.GetPixel(95, 75).ToArgb() == Color.White.ToArgb(), "2 must switch to the white mask.");
+            Key(form, Keys.Control | Keys.Z);
+            Key(form, Keys.Control | Keys.Z);
+            Check(!undo.Enabled, "Undo must become unavailable again after the last mark is undone.");
+            Key(form, Keys.R);
+            Drag(form, new Point(85, 75), new Point(140, 122));
+            using (var edited = form.RenderSelection())
+                Check(edited.Size == new Size(55, 47), "R must return the overlay to selection mode.");
         }
         using (var screen = new Bitmap(bounds.Width, bounds.Height))
         using (var form = new RegionCapture(screen, bounds, windows))
@@ -54,7 +89,7 @@ internal static class NativeCaptureTest
             using (var edited = form.RenderSelection())
                 Check(edited.Size == new Size(55, 47), "A drag over a window must create a free-form crop.");
         }
-        Console.WriteLine("Native capture passed: window hit testing, free selection, editing, and flattened pixels.");
+        Console.WriteLine("Native capture passed: window and free selection, cursor feedback, tool shortcuts, undo, and flattened pixels.");
     }
 
     private static void Drag(Control form, Point start, Point end)
@@ -67,6 +102,12 @@ internal static class NativeCaptureTest
     private static void Mouse(Control form, int message, int buttons, int x, int y)
     {
         SendMessage(form.Handle, message, new IntPtr(buttons), new IntPtr((y << 16) | (x & 0xffff)));
+    }
+
+    private static void Key(Form form, Keys keys)
+    {
+        typeof(RegionCapture).GetMethod("ProcessCmdKey", BindingFlags.Instance | BindingFlags.NonPublic)
+            .Invoke(form, new object[] { new Message(), keys });
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
