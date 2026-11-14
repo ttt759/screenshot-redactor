@@ -61,6 +61,7 @@ internal sealed class RedactorWindow : Form
             var browser = view.CoreWebView2;
             browser.Settings.AreDevToolsEnabled = false;
             browser.Settings.AreDefaultContextMenusEnabled = false;
+            browser.Settings.IsZoomControlEnabled = false;
             browser.Settings.AreHostObjectsAllowed = false;
             browser.Settings.IsWebMessageEnabled = false;
             browser.NewWindowRequested += (s, e) => { e.Handled = true; };

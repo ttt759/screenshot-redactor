@@ -49,6 +49,18 @@ try {
   assert.equal(width, 1120);
   await button('适应').click();
   await artboard.hover();
+  const initialSize = await artboard.boundingBox();
+  const ratio = await page.evaluate(() => devicePixelRatio);
+  await page.keyboard.down('Control');
+  try {
+    await page.mouse.wheel(0, -220);
+    await page.waitForFunction((width) => document.querySelector('#artboard').getBoundingClientRect().width > width * 1.2, initialSize.width);
+  } finally {
+    await page.keyboard.up('Control');
+  }
+  assert.equal(await page.evaluate(() => devicePixelRatio), ratio);
+  await button('适应').click();
+  await artboard.hover();
   const bounds = await artboard.boundingBox();
   await page.mouse.move(bounds.x + bounds.width * .33, bounds.y + bounds.height * .52);
   await page.mouse.down();

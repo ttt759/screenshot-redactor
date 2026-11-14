@@ -165,10 +165,11 @@ function renderEditor() {
   const editing = Boolean(entry) && view === 'edit';
   const sameSizeCount = editing ? entries.filter((target) => target !== entry && sameSize(entry, target)).length : 0;
   $('active-name').textContent = entry?.name ?? '编辑区';
-  $('active-detail').textContent = entry ? `${entry.width} × ${entry.height} px${entry.demo ? ' · 虚构示例' : ''}` : '';
+  $('active-detail').textContent = entry ? `${entry.width} × ${entry.height} px · ${entry.boxes.length} 处遮挡${entry.demo ? ' · 虚构示例' : ''}` : '';
   $('empty').hidden = Boolean(entry);
   $('stage-inner').hidden = !entry;
   $('toolbar').hidden = !entry;
+  $('drawing-tools').hidden = !editing;
   $('editor-foot').hidden = !entry;
   $('file-actions').hidden = !entry;
   const organizingBlocked = !entry || importsPending > 0 || busy || Boolean(gesture);
@@ -191,14 +192,13 @@ function renderEditor() {
   setDisabled('pan', !editing);
   setDisabled('undo', !editing || !entry?.history.length);
   setDisabled('delete', !editing || !selected);
-  $('batch-bar').hidden = !editing && !lastBatch;
-  $('copy-mask').hidden = !editing;
+  const canCopy = editing && entry.boxes.length > 0 && sameSizeCount > 0;
+  $('batch-bar').hidden = !canCopy && !lastBatch;
+  $('copy-mask').hidden = !canCopy;
   $('undo-batch').hidden = !lastBatch;
   setDisabled('undo-batch', Boolean(gesture) || importsPending > 0);
-  setDisabled('copy-mask', !editing || !entry?.boxes.length || !sameSizeCount || Boolean(gesture) || importsPending > 0);
-  $('batch-hint').textContent = importsPending ? '正在读取截图…' : !sameSizeCount ? '导入同尺寸截图后可批量应用'
-    : entry.boxes.length ? `${entry.boxes.length} 个遮挡框 · ${sameSizeCount} 张同尺寸截图` : '先画出要应用的遮挡框';
-  if (!editing && lastBatch) $('batch-hint').textContent = `上次批量应用到 ${lastBatch.length} 张截图`;
+  setDisabled('copy-mask', !canCopy || Boolean(gesture) || importsPending > 0);
+  $('batch-hint').textContent = canCopy ? `${sameSizeCount} 张同尺寸截图` : lastBatch ? `上次应用到 ${lastBatch.length} 张` : '';
   setDisabled('review', !entry);
   setDisabled('previous', !entry || index === 0);
   setDisabled('next', !entry || index >= entries.length - 1);
@@ -209,11 +209,6 @@ function renderEditor() {
   setDisabled('fit', !entry);
   setDisabled('actual-size', !entry);
   $('review').checked = entry?.checked ?? false;
-  $('mask-count').textContent = entry ? `${entry.boxes.length} 处遮挡` : '';
-  $('mode-hint').textContent = !entry ? '可以拖入多张截图，或直接粘贴剪贴板中的图片。'
-    : !editing ? '检查遮挡范围，确认后标记为已检查。'
-      : tool === 'draw' ? '在敏感信息上拖动鼠标，画出黑色遮挡框。' : '拖动遮挡框可移动，拖动四角可调整大小。';
-  if (editing && tool === 'pan') $('mode-hint').textContent = '拖动画布查看放大后超出视野的区域。';
   if (!entry) return;
   if (source.getAttribute('src') !== entry.url) source.src = entry.url;
   layoutArtboard();
@@ -496,22 +491,31 @@ function useTool(nextTool) {
   renderEditor();
 }
 
-function changeZoom(mode) {
+function changeZoom(mode, pointer) {
   const entry = active();
   if (!entry || gesture) return;
   const current = zoom ?? fittedScale(entry);
-  const inner = $('stage-inner').getBoundingClientRect();
+  const frame = stage.getBoundingClientRect();
+  const anchorX = pointer?.clientX ?? frame.left + stage.clientWidth / 2;
+  const anchorY = pointer?.clientY ?? frame.top + stage.clientHeight / 2;
   const area = artboard.getBoundingClientRect();
-  const x = (stage.clientWidth / 2 + stage.scrollLeft - (area.left - inner.left)) / area.width;
-  const y = (stage.clientHeight / 2 + stage.scrollTop - (area.top - inner.top)) / area.height;
+  const x = (anchorX - area.left) / area.width;
+  const y = (anchorY - area.top) / area.height;
   zoom = mode === 'fit' ? null : mode === 'original' ? 1
     : clamp(current * 1.25 ** mode, Math.min(0.05, fittedScale(entry)), 8);
   layoutArtboard();
   const adjusted = artboard.getBoundingClientRect();
-  const currentInner = $('stage-inner').getBoundingClientRect();
-  stage.scrollTo(adjusted.left - currentInner.left + x * adjusted.width - stage.clientWidth / 2,
-    adjusted.top - currentInner.top + y * adjusted.height - stage.clientHeight / 2);
+  stage.scrollTo(stage.scrollLeft + adjusted.left + x * adjusted.width - anchorX,
+    stage.scrollTop + adjusted.top + y * adjusted.height - anchorY);
 }
+
+stage.addEventListener('wheel', (event) => {
+  if (!event.ctrlKey && !event.metaKey) return;
+  event.preventDefault();
+  if (openDialog() || !event.deltaY) return;
+  const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientHeight : 1);
+  changeZoom(clamp(-pixels / 100, -6, 6), event);
+}, { passive: false });
 
 function point(event, entry) {
   const bounds = artboard.getBoundingClientRect();
@@ -713,7 +717,7 @@ async function runExport({ targets, batch, filename }) {
   }
 }
 
-for (const id of ['import', 'drop-button', 'empty-import']) $(id).onclick = () => $('file-input').click();
+for (const id of ['import', 'empty-import']) $(id).onclick = () => $('file-input').click();
 $('file-input').onchange = (event) => {
   addFiles(Array.from(event.target.files));
   event.target.value = '';

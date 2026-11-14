@@ -15,7 +15,7 @@
   <header class="page-header">
     <div class="identity">
       <span class="brand-icon" id="brand-icon" aria-hidden="true"></span>
-      <div><h1>截图脱敏助手</h1><p>画好遮挡框，一次应用到多张同尺寸截图。</p></div>
+      <h1>截图脱敏助手</h1>
     </div>
     <div class="header-actions">
       <span class="privacy" data-icon="shield">图片仅在本机处理</span>
@@ -38,9 +38,6 @@
       <div class="sidebar-foot">
         <div class="progress-label"><span>检查进度</span><strong id="progress-text">0 / 0</strong></div>
         <progress id="progress" aria-label="已检查图片" aria-valuenow="0" value="0" max="1"></progress>
-        <button class="upload-zone" id="drop-button">
-          <span data-icon="upload">拖入或粘贴截图</span><small>PNG / JPG · 支持多张</small>
-        </button>
       </div>
     </aside>
 
@@ -54,7 +51,7 @@
       </header>
 
       <div id="toolbar" class="toolbar" aria-label="编辑工具" hidden>
-        <div class="toolset">
+        <div class="toolset" id="drawing-tools">
           <button class="button tool" id="draw" data-icon="box" aria-pressed="true" aria-keyshortcuts="R" title="画遮挡框 (R)" disabled>画遮挡框<kbd aria-hidden="true">R</kbd></button>
           <button class="button icon-button" id="select" data-icon="cursor" aria-label="选择遮挡框" aria-pressed="false" title="选择遮挡框 (V)" disabled></button>
           <button class="button icon-button" id="pan" data-icon="hand" aria-label="平移画布" aria-pressed="false" title="平移画布 (H)" disabled></button>
@@ -63,9 +60,9 @@
           <button class="button icon-button" id="delete" data-icon="trash" aria-label="删除遮挡" title="删除遮挡 (Delete)" disabled></button>
         </div>
         <div class="toolset zoom" aria-label="缩放">
-          <button class="button icon-button" id="zoom-out" data-icon="minus" aria-label="缩小" title="缩小" disabled></button>
+          <button class="button icon-button" id="zoom-out" data-icon="minus" aria-label="缩小" title="缩小（Ctrl + 滚轮向下）" disabled></button>
           <button class="button compact" id="actual-size" aria-label="原图大小" aria-keyshortcuts="0" title="原图大小，按 0 (1:1 像素显示)" disabled><span id="zoom-level">—</span><span class="actual-label" aria-hidden="true">原图</span></button>
-          <button class="button icon-button" id="zoom-in" data-icon="plus" aria-label="放大" title="放大" disabled></button>
+          <button class="button icon-button" id="zoom-in" data-icon="plus" aria-label="放大" title="放大（Ctrl + 滚轮向上）" disabled></button>
           <button class="button compact fit" id="fit" data-icon="expand" title="适应画布" disabled>适应</button>
         </div>
       </div>
@@ -110,10 +107,6 @@
     </section>
   </main>
 
-  <footer class="page-footer">
-    <span id="mode-hint">在敏感信息上拖动鼠标，画出黑色遮挡框。</span>
-    <span id="mask-count"></span>
-  </footer>
   <p id="toast" class="toast" role="status" hidden></p>
 
   <dialog id="export-dialog" aria-labelledby="dialog-title">

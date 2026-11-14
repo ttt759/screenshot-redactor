@@ -6,6 +6,35 @@ import { unzipSync } from 'fflate';
 const assets = ['account.png', 'checkout.jpg', 'receipt.png'];
 const demoCount = 5;
 
+test('Ctrl+wheel zooms the screenshot around the pointer while the interface keeps its scale', async ({ page }) => {
+  await openSamples(page);
+  const artboard = page.locator('#artboard');
+  const initial = await artboard.boundingBox();
+  const headerWidth = await page.locator('.page-header').evaluate((header) => header.getBoundingClientRect().width);
+  const ratio = await page.evaluate(() => devicePixelRatio);
+  const start = { x: initial.x + initial.width / 2, y: initial.y + initial.height / 2 };
+  await page.mouse.move(start.x, start.y);
+  await page.keyboard.down('Control');
+  try {
+    await page.mouse.wheel(0, -600);
+    await expect.poll(async () => (await artboard.boundingBox()).width).toBeGreaterThan(initial.width * 2);
+    const enlarged = await artboard.boundingBox();
+    const point = { x: start.x + 110, y: start.y + 25 };
+    const relative = (bounds) => [(point.x - bounds.x) / bounds.width, (point.y - bounds.y) / bounds.height];
+    const before = relative(enlarged);
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.wheel(0, 100);
+    await expect.poll(async () => (await artboard.boundingBox()).width).toBeLessThan(enlarged.width * .95);
+    const after = relative(await artboard.boundingBox());
+    expect(after[0]).toBeCloseTo(before[0], 2);
+    expect(after[1]).toBeCloseTo(before[1], 2);
+  } finally {
+    await page.keyboard.up('Control');
+  }
+  expect(await page.evaluate(() => devicePixelRatio)).toBe(ratio);
+  expect(await page.locator('.page-header').evaluate((header) => header.getBoundingClientRect().width)).toBe(headerWidth);
+});
+
 test('organizes imported screenshots and opens a specific unchecked preview from export', async ({ page }) => {
   await page.goto('/');
   await page.locator('#file-input').setInputFiles(assets.map((name) => resolve('docs/samples', name)));
