@@ -18,6 +18,8 @@ const mosaicDialog = $('mosaic-dialog');
 const styleWheel = $('mask-style');
 const styleButton = $('mask-style-current');
 const styleReel = $('mask-style-reel');
+const styleSwatch = $('mask-style-swatch');
+const outgoingSwatch = $('mask-style-swatch-out');
 const mosaicColor = $('mosaic-color');
 const colorPresets = [...mosaicDialog.querySelectorAll('[data-tint]')];
 const styleNames = { black: '纯黑', white: '纯白', gray: '深灰', brush: '笔刷', dots: '圆点', soft: '柔化', mosaic: '方块马赛克' };
@@ -40,7 +42,7 @@ let index = 0;
 let tool = 'draw';
 let maskStyle = 'black';
 let mosaicTint = null;
-let reelAnimation;
+let styleAnimations = [];
 let view = 'edit';
 let selected = null;
 let zoom = null;
@@ -803,25 +805,36 @@ function renderStyleWheel(disabled) {
   const current = displayedMaskStyle(box);
   const previous = styleWheel.dataset.style;
   const position = maskStyles.indexOf(current);
-  const labels = [-1, 0, 1].map((offset) => styleNames[styleAt(position + offset)]);
+  const labels = [-2, -1, 0, 1, 2].map((offset) => styleNames[styleAt(position + offset)]);
   for (const [index, item] of [...styleReel.children].entries()) {
     if (item.textContent !== labels[index]) item.textContent = labels[index];
   }
   styleWheel.dataset.style = current;
-  styleWheel.classList.toggle('textured', isMosaic(current));
   styleButton.setAttribute('aria-label', `遮挡样式：${styleNames[current]}`);
-  const tint = box ? box.mosaicTint : mosaicTint;
-  styleWheel.style.setProperty('--mosaic-tint', tint ?? 'transparent');
+  const previousTint = styleSwatch.style.getPropertyValue('--mosaic-tint');
+  const tint = isMosaic(current) ? (box ? box.mosaicTint : mosaicTint) : null;
+  styleSwatch.dataset.style = current;
+  styleSwatch.style.setProperty('--mosaic-tint', tint ?? 'transparent');
   for (const id of ['mask-style-current', 'mask-style-prev', 'mask-style-next', 'mosaic-palette']) setDisabled(id, disabled);
   if (current === previous) return;
-  reelAnimation?.cancel();
-  if (styleDirection && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    const offset = styleDirection * Number.parseFloat(getComputedStyle(styleWheel).getPropertyValue('--reel-row'));
-    reelAnimation = styleReel.animate([
-      { transform: `translateY(-50%) translateY(${offset}px)` },
-      { transform: 'translateY(-50%)' },
-    ], { duration: 145, easing: 'cubic-bezier(.22,.7,.3,1)' });
-  }
+  for (const animation of styleAnimations) animation.cancel();
+  styleAnimations = [];
+  if (!styleDirection || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const offset = styleDirection * Number.parseFloat(getComputedStyle(styleWheel).getPropertyValue('--reel-row'));
+  const motion = { duration: 200, easing: 'cubic-bezier(.22,.75,.32,1)' };
+  const incoming = styleReel.children[2];
+  const outgoing = styleReel.children[2 - styleDirection];
+  outgoingSwatch.dataset.style = previous;
+  outgoingSwatch.style.setProperty('--mosaic-tint', previousTint);
+  styleAnimations = [
+    styleReel.animate([{ transform: `translateY(-50%) translateY(${offset}px)` },
+      { transform: 'translateY(-50%)' }], motion),
+    incoming.animate([{ opacity: .54, transform: 'scale(.9)' }, { opacity: 1, transform: 'scale(1)' }], motion),
+    outgoing.animate([{ opacity: 1, transform: 'scale(1)' }, { opacity: .54, transform: 'scale(.9)' }], motion),
+    outgoingSwatch.animate([{ opacity: 1 }, { opacity: 0 }], motion),
+    styleSwatch.parentElement.animate([{ transform: 'scale(.9)' }, { transform: 'scale(1)' }], motion),
+  ];
 }
 
 function applyMaskStyle(style, tint = mosaicTint) {

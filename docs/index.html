@@ -7,9 +7,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>截图脱敏助手</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=0.3.15">
   <script defer src="./vendor/fflate.js"></script>
-  <script type="module" src="./app.mjs"></script>
+  <script type="module" src="./app.mjs?v=0.3.15"></script>
 </head>
 <body>
   <header class="page-header">
@@ -60,8 +60,8 @@
           <button class="button tool" id="draw" data-icon="box" aria-pressed="true" aria-keyshortcuts="R" title="画遮挡框 (R)" disabled>画遮挡框<kbd aria-hidden="true">R</kbd></button>
           <div id="mask-style" class="style-wheel" role="group" aria-label="遮挡样式" data-style="black">
             <button id="mask-style-current" class="style-current" type="button" aria-label="遮挡样式：纯黑" aria-keyshortcuts="ArrowUp ArrowDown" title="滚轮或方向键切换遮挡样式，点击下一种">
-              <span class="style-swatch" aria-hidden="true"></span>
-              <span class="style-reel-window" aria-hidden="true"><span id="mask-style-reel" class="style-reel"><span></span><span>纯黑</span><span></span></span></span>
+              <span class="style-swatch" aria-hidden="true"><span id="mask-style-swatch" data-style="black"></span><span id="mask-style-swatch-out" data-style="black"></span></span>
+              <span class="style-reel-window" aria-hidden="true"><span id="mask-style-reel" class="style-reel"><span></span><span></span><span>纯黑</span><span></span><span></span></span></span>
             </button>
             <span class="style-steps">
               <button id="mask-style-prev" type="button" aria-label="上一种遮挡样式" title="上一种遮挡样式"></button>

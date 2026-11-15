@@ -73,16 +73,7 @@ test('cycles through distinct opaque mosaic textures in the editor and preview',
   await openSamples(page);
   await page.locator('#masks .mask').first().click();
   const current = page.getByRole('button', { name: /^遮挡样式：/ });
-  const reel = page.locator('#mask-style-reel');
-  await reel.evaluate((node) => {
-    const animate = node.animate.bind(node);
-    node.animate = (...args) => {
-      node.dataset.firstFrame = args[0][0].transform;
-      return animate(...args);
-    };
-  });
   await current.press('ArrowUp');
-  await expect(reel).toHaveAttribute('data-first-frame', 'translateY(-50%) translateY(-15px)');
   const rendered = [];
   for (const name of ['方块马赛克', '柔化', '圆点', '笔刷']) {
     await expect(current).toHaveAccessibleName(`遮挡样式：${name}`);
@@ -97,6 +88,34 @@ test('cycles through distinct opaque mosaic textures in the editor and preview',
     await page.locator('#masks .mask').first().click();
     await current.press('ArrowUp');
   }
+});
+
+test('animates the style reel and swatch in both directions and respects reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await openSamples(page);
+  const wheel = page.locator('#mask-style');
+  const turn = (delta) => wheel.evaluate((picker, deltaY) => {
+    picker.dispatchEvent(new WheelEvent('wheel', { deltaY, cancelable: true }));
+    const reel = picker.querySelector('#mask-style-reel');
+    return {
+      style: picker.dataset.style,
+      labels: [...reel.children].map((row) => row.textContent),
+      movement: reel.getAnimations()[0]?.effect.getKeyframes()[0].transform,
+      swatch: picker.querySelector('.style-swatch').getAnimations({ subtree: true }).length,
+    };
+  }, delta);
+  const down = await turn(100);
+  expect(down).toEqual({ style: 'white', labels: ['方块马赛克', '纯黑', '纯白', '深灰', '笔刷'],
+    movement: 'translateY(-50%) translateY(15px)', swatch: 2 });
+  const up = await turn(-100);
+  expect(up.style).toBe('black');
+  expect(up.movement).toBe('translateY(-50%) translateY(-15px)');
+  expect(up.swatch).toBe(2);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const quiet = await turn(100);
+  expect(quiet.style).toBe('white');
+  expect(quiet.movement).toBeUndefined();
+  expect(quiet.swatch).toBe(0);
 });
 
 test('highlights the canvas during a drag and reports individual import failures', async ({ page }) => {
