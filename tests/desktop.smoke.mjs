@@ -109,7 +109,7 @@ try {
   await page.mouse.down();
   await page.mouse.move(bounds.x + bounds.width * .69, bounds.y + bounds.height * .71, { steps: 10 });
   await page.mouse.up();
-  await button('批量应用遮挡').click();
+  await page.getByRole('button', { name: /^批量应用遮挡.*1 张可选/ }).click();
   await page.getByRole('checkbox', { name: '全选可应用截图' }).check();
   await button('应用到 1 张').click();
   await button('成品预览').click();

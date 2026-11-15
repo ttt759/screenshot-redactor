@@ -7,9 +7,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>截图脱敏助手</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=0.3.15">
+  <link rel="stylesheet" href="./styles.css?v=0.3.16">
   <script defer src="./vendor/fflate.js"></script>
-  <script type="module" src="./app.mjs?v=0.3.15"></script>
+  <script type="module" src="./app.mjs?v=0.3.16"></script>
 </head>
 <body>
   <header class="page-header">
@@ -57,7 +57,7 @@
 
       <div id="toolbar" class="toolbar" aria-label="编辑工具" hidden>
         <div class="toolset" id="drawing-tools">
-          <button class="button tool" id="draw" data-icon="box" aria-pressed="true" aria-keyshortcuts="R" title="画遮挡框 (R)" disabled>画遮挡框<kbd aria-hidden="true">R</kbd></button>
+          <button class="button tool" id="draw" data-icon="box" aria-pressed="true" aria-keyshortcuts="R" title="画遮挡框 (R) · 拖动已有框可移动 · Alt + 拖动可叠画" disabled>画遮挡框<kbd aria-hidden="true">R</kbd></button>
           <div id="mask-style" class="style-wheel" role="group" aria-label="遮挡样式" data-style="black">
             <button id="mask-style-current" class="style-current" type="button" aria-label="遮挡样式：纯黑" aria-keyshortcuts="ArrowUp ArrowDown" title="滚轮或方向键切换遮挡样式，点击下一种">
               <span class="style-swatch" aria-hidden="true"><span id="mask-style-swatch" data-style="black"></span><span id="mask-style-swatch-out" data-style="black"></span></span>
@@ -68,7 +68,7 @@
               <button id="mask-style-next" type="button" aria-label="下一种遮挡样式" title="下一种遮挡样式"></button>
             </span>
           </div>
-          <button id="mosaic-palette" class="button compact" type="button" aria-haspopup="dialog" title="自定义马赛克配色">自定义</button>
+          <button id="mosaic-palette" class="button compact" type="button" aria-haspopup="dialog" title="自定义马赛克配色"><span class="palette-dot" aria-hidden="true"></span>配色</button>
           <button class="button icon-button" id="select" data-icon="cursor" aria-label="选择遮挡框" aria-pressed="false" title="选择遮挡框 (V)" disabled></button>
           <button class="button icon-button" id="pan" data-icon="hand" aria-label="平移画布" aria-pressed="false" title="平移画布 (H)，按住空格可临时平移" disabled></button>
           <div class="tool-divider"></div>
@@ -84,10 +84,10 @@
       </div>
 
       <div id="batch-bar" class="batch-bar" hidden>
-        <span id="batch-hint">先画出要应用的遮挡框</span>
+        <span id="batch-hint"></span>
         <div class="batch-actions">
           <button class="button subtle compact" id="undo-batch" data-icon="undo" title="撤销最近一次批量应用" aria-label="撤销最近一次批量应用" hidden>撤销整批</button>
-          <button class="button subtle compact" id="copy-mask" data-icon="copy" aria-describedby="batch-hint" disabled>批量应用遮挡</button>
+          <button class="button subtle compact" id="copy-mask" data-icon="copy" aria-describedby="batch-hint" disabled>批量应用遮挡 <span id="batch-available" class="batch-available"></span></button>
         </div>
       </div>
 

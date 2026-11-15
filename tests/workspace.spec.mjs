@@ -16,7 +16,8 @@ test('changes a selected mask style and flattens opaque color or mosaic into the
   await expect(current).toHaveAccessibleName('遮挡样式：纯白');
   await expect(style).toHaveAttribute('data-style', 'white');
   expect(await page.locator('#artboard').boundingBox()).toEqual(artboard);
-  await expect(page.getByRole('button', { name: '自定义', exact: true })).toBeVisible();
+  const paletteButton = page.getByRole('button', { name: /^配色/ });
+  await expect(paletteButton).toHaveAccessibleName('配色：原图配色');
   await page.getByRole('button', { name: '成品预览' }).click();
   const preview = page.locator('#preview');
   const pixels = (points) => preview.evaluate((canvas, positions) => positions.map(([x, y]) =>
@@ -32,11 +33,12 @@ test('changes a selected mask style and flattens opaque color or mosaic into the
   await expect(tile).toHaveCount(1);
   const firstPixel = () => tile.evaluate((canvas) => [...canvas.getContext('2d').getImageData(0, 0, 1, 1).data]);
   const original = await firstPixel();
-  const custom = page.getByRole('button', { name: '自定义', exact: true });
-  await custom.click();
+  await paletteButton.click();
   const palette = page.getByRole('dialog', { name: '马赛克配色' });
   await palette.getByLabel('自定义颜色').fill('#2070e0');
   await palette.getByRole('button', { name: '应用配色' }).click();
+  await expect(paletteButton).toHaveAccessibleName('配色：#2070e0');
+  await expect(paletteButton.locator('.palette-dot')).toHaveCSS('background-color', 'rgb(32, 112, 224)');
   const tinted = await firstPixel();
   expect(tinted).not.toEqual(original);
   expect(tinted[2]).toBeGreaterThan(tinted[0]);
@@ -45,7 +47,7 @@ test('changes a selected mask style and flattens opaque color or mosaic into the
   await page.locator('#masks .mask').first().click();
   await current.press('ArrowDown');
   await expect(current).toHaveAccessibleName('遮挡样式：纯黑');
-  await custom.click();
+  await paletteButton.click();
   await palette.getByLabel('自定义颜色').fill('#2070e0');
   await palette.getByRole('button', { name: '应用配色' }).click();
   await page.getByRole('button', { name: '成品预览' }).click();
@@ -67,6 +69,36 @@ test('changes a selected mask style and flattens opaque color or mosaic into the
     return Array.from(context.getImageData(446, 403, 1, 1).data);
   }, png.toString('base64'));
   expect(exported).toEqual(tinted);
+});
+
+test('draws consecutive masks and moves and resizes them without switching tools', async ({ page }) => {
+  await openSamples(page);
+  await page.locator('.file-row').nth(3).click();
+  const drawTool = page.getByRole('button', { name: '画遮挡框', exact: true });
+  await drawTool.click();
+  const drawBox = async (left, top, right, bottom) => {
+    const bounds = await page.locator('#artboard').boundingBox();
+    return drag(page, imagePoint(bounds, 1120, 700, left, top), imagePoint(bounds, 1120, 700, right, bottom));
+  };
+  const masks = page.locator('#masks .mask');
+  await drawBox(90, 100, 250, 160);
+  await drawBox(320, 215, 470, 285);
+  await expect(masks).toHaveCount(2);
+  await expect(drawTool).toHaveAttribute('aria-pressed', 'true');
+  const first = masks.first();
+  const before = await first.boundingBox();
+  await drawBox(155, 125, 200, 140);
+  await expect(masks).toHaveCount(2);
+  expect((await first.boundingBox()).x).toBeGreaterThan(before.x + 5);
+  const handle = await first.locator('[data-handle="se"]').boundingBox();
+  const corner = { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2 };
+  await drag(page, corner, { x: corner.x + 24, y: corner.y + 9 });
+  expect((await first.boundingBox()).width).toBeGreaterThan(before.width + 10);
+  await expect(drawTool).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.down('Alt');
+  try { await drawBox(155, 125, 220, 155); }
+  finally { await page.keyboard.up('Alt'); }
+  await expect(masks).toHaveCount(3);
 });
 
 test('cycles through distinct opaque mosaic textures in the editor and preview', async ({ page }) => {
@@ -516,8 +548,10 @@ test('copies a selected mask to chosen same-size screenshots and exports it inde
   await drag(page, imagePoint(bounds, 1120, 700, 446, 403), imagePoint(bounds, 1120, 700, 700, 431));
   const originalStyle = await mask.getAttribute('style');
   const open = page.getByRole('button', { name: '批量应用遮挡' });
+  await expect(open).toHaveText(/3 张可选/);
   await open.click();
   const picker = page.getByRole('dialog', { name: '批量应用遮挡框' });
+  await expect(picker.locator('#batch-targets li').last()).toContainText('different.jpg');
   await expect(picker.getByRole('checkbox', { name: /different\.jpg/ })).toBeDisabled();
   await expect(picker.getByRole('checkbox', { name: /source\.png/ })).toHaveCount(0);
   await expect(picker.getByRole('button', { name: '应用到 0 张' })).toBeDisabled();
@@ -529,6 +563,7 @@ test('copies a selected mask to chosen same-size screenshots and exports it inde
   await expect(rows.nth(1)).toContainText('1 处遮挡');
   await expect(rows.nth(2)).not.toContainText('处遮挡');
   await expect(rows.nth(3)).toContainText('1 处遮挡');
+  await expect(open).toHaveText(/1 张可选/);
   await open.click();
   await expect(picker.getByRole('checkbox', { name: /^chosen\.png/ })).toBeDisabled();
   await page.keyboard.press('Escape');

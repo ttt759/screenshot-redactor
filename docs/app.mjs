@@ -21,6 +21,7 @@ const styleReel = $('mask-style-reel');
 const styleSwatch = $('mask-style-swatch');
 const outgoingSwatch = $('mask-style-swatch-out');
 const mosaicColor = $('mosaic-color');
+const paletteButton = $('mosaic-palette');
 const colorPresets = [...mosaicDialog.querySelectorAll('[data-tint]')];
 const styleNames = { black: '纯黑', white: '纯白', gray: '深灰', brush: '笔刷', dots: '圆点', soft: '柔化', mosaic: '方块马赛克' };
 const maskStyles = Object.keys(styleNames);
@@ -66,6 +67,7 @@ const sameSize = (first, second) => first.width === second.width && first.height
 const sameBox = (first, second) => (first.style ?? 'black') === (second.style ?? 'black') &&
   (!isMosaic(first.style) || (first.mosaicTint ?? null) === (second.mosaicTint ?? null)) &&
   ['x', 'y', 'width', 'height'].every((key) => first[key] === second[key]);
+const hasBox = (entry, box) => entry.boxes.some((existing) => sameBox(existing, box));
 
 function makeEntry(name, { image, url }, demo = false, boxes = []) {
   return { name, image, url, demo, width: image.naturalWidth, height: image.naturalHeight, boxes, history: [], checked: false };
@@ -190,7 +192,6 @@ function positionMask(node, box, entry) {
 function renderEditor() {
   const entry = active();
   const editing = Boolean(entry) && view === 'edit';
-  const sameSizeCount = editing ? entries.filter((target) => target !== entry && sameSize(entry, target)).length : 0;
   $('active-name').textContent = entry?.name ?? '编辑区';
   $('active-detail').textContent = entry ? `${entry.width} × ${entry.height} px · ${entry.boxes.length} 处遮挡${entry.demo ? ' · 虚构示例' : ''}` : '';
   $('empty').hidden = Boolean(entry);
@@ -220,13 +221,17 @@ function renderEditor() {
   setDisabled('pan', !editing);
   setDisabled('undo', !editing || !entry?.history.length);
   setDisabled('delete', !editing || !selected);
-  const canCopy = editing && entry.boxes.length > 0 && sameSizeCount > 0;
+  const matchingTargets = editing && entry.boxes.length
+    ? entries.filter((target) => target !== entry && sameSize(entry, target)) : [];
+  const canCopy = matchingTargets.length > 0;
+  const availableCount = matchingTargets.filter((target) => entry.boxes.some((box) => !hasBox(target, box))).length;
   $('batch-bar').hidden = !canCopy && !lastBatch;
   $('copy-mask').hidden = !canCopy;
   $('undo-batch').hidden = !lastBatch;
   setDisabled('undo-batch', Boolean(gesture) || importsPending > 0);
   setDisabled('copy-mask', !canCopy || Boolean(gesture) || importsPending > 0);
-  $('batch-hint').textContent = canCopy ? `${sameSizeCount} 张同尺寸截图` : lastBatch ? `上次应用到 ${lastBatch.length} 张` : '';
+  $('batch-available').textContent = `${availableCount} 张可选`;
+  $('batch-hint').textContent = lastBatch ? `上次应用到 ${lastBatch.length} 张` : '';
   setDisabled('review', !entry);
   setDisabled('previous', !entry || index === 0);
   setDisabled('next', !entry || index >= entries.length - 1);
@@ -368,7 +373,7 @@ function renderBatchSelection() {
   }
   for (const item of pendingBatch.targets) {
     const { target, input, caption, sizeMatches } = item;
-    item.missing = sizeMatches ? chosenMasks.filter((box) => !target.boxes.some((existing) => sameBox(existing, box))) : [];
+    item.missing = sizeMatches ? chosenMasks.filter((box) => !hasBox(target, box)) : [];
     input.disabled = !item.missing.length;
     const status = !sizeMatches ? '尺寸不同' : !chosenMasks.length ? '请先选择遮挡框'
       : !item.missing.length ? '已有相同遮挡框' : `将添加 ${item.missing.length} 个遮挡框`;
@@ -433,7 +438,9 @@ function openBatchPicker() {
   $('batch-source').textContent = `来自 ${entry.name} · ${entry.width} × ${entry.height} px`;
   const list = $('batch-targets');
   list.replaceChildren();
-  const targets = entries.filter((target) => target !== entry).map((target) => {
+  const candidates = entries.filter((target) => target !== entry);
+  candidates.sort((first, second) => Number(sameSize(entry, second)) - Number(sameSize(entry, first)));
+  const targets = candidates.map((target) => {
     const row = document.createElement('li');
     const label = document.createElement('label');
     const input = document.createElement('input');
@@ -584,7 +591,7 @@ stage.addEventListener('pointerdown', (event) => {
   const mask = event.target.closest('.mask');
   const handle = event.target.dataset.handle;
   const original = mask && entry.boxes.find((box) => box.id === mask.dataset.id);
-  if (original && (tool === 'select' || handle)) {
+  if (original && (handle || tool === 'select' || !event.altKey)) {
     selected = original.id;
     gesture = { mode: handle ? 'resize' : 'move', id: original.id, original, handle, start, pointer: event.pointerId };
   } else {
@@ -634,11 +641,10 @@ artboard.addEventListener('pointerup', (event) => {
     return;
   }
   updateGesture(event);
-  const { draft, original, id, mode } = gesture;
+  const { draft, original, id } = gesture;
   gesture = null;
   if (draft && (!original || !sameBox(draft, original))) {
     selected = id;
-    if (mode === 'draw') tool = 'select';
     editBoxes(original ? active().boxes.map((box) => box.id === id ? draft : box) : [...active().boxes, draft]);
   } else {
     renderEditor();
@@ -798,6 +804,7 @@ const paletteStyle = () => {
   const current = displayedMaskStyle();
   return isMosaic(current) ? current : 'mosaic';
 };
+const paletteTint = (box) => isMosaic(box?.style) ? box.mosaicTint : mosaicTint;
 let styleDirection = 0;
 
 function renderStyleWheel(disabled) {
@@ -812,9 +819,14 @@ function renderStyleWheel(disabled) {
   styleWheel.dataset.style = current;
   styleButton.setAttribute('aria-label', `遮挡样式：${styleNames[current]}`);
   const previousTint = styleSwatch.style.getPropertyValue('--mosaic-tint');
-  const tint = isMosaic(current) ? (box ? box.mosaicTint : mosaicTint) : null;
+  const color = paletteTint(box);
+  const tint = isMosaic(current) ? color : null;
   styleSwatch.dataset.style = current;
   styleSwatch.style.setProperty('--mosaic-tint', tint ?? 'transparent');
+  paletteButton.style.setProperty('--palette-color', color ?? 'transparent');
+  paletteButton.classList.toggle('has-color', Boolean(color));
+  paletteButton.setAttribute('aria-label', `配色：${color ?? '原图配色'}`);
+  paletteButton.title = color ? `自定义配色 ${color}` : '自定义配色（当前使用原图配色）';
   for (const id of ['mask-style-current', 'mask-style-prev', 'mask-style-next', 'mosaic-palette']) setDisabled(id, disabled);
   if (current === previous) return;
   for (const animation of styleAnimations) animation.cancel();
@@ -886,10 +898,9 @@ function previewMosaicColor() {
   for (const preset of colorPresets) preset.setAttribute('aria-pressed', preset.dataset.tint === tint);
 }
 
-$('mosaic-palette').onclick = () => {
+paletteButton.onclick = () => {
   if (openDialog()) return;
-  const box = selectedMask();
-  mosaicColor.value = (isMosaic(box?.style) ? box.mosaicTint : mosaicTint) ?? '#3275d0';
+  mosaicColor.value = paletteTint(selectedMask()) ?? '#3275d0';
   previewMosaicColor();
   mosaicDialog.showModal();
 };
