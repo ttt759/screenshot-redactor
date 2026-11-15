@@ -1,0 +1,6 @@
+#desktop-update { white-space: nowrap; }
+#desktop-update.update-available { color: #a22e50; background: #faedf1; border-color: #efd5df; }
+.desktop-update-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (max-width: 820px) {
+  .header-actions { flex-wrap: wrap; justify-content: flex-end; }
+}

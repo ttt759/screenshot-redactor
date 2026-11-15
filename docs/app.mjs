@@ -1108,7 +1108,7 @@ if (desktop) {
     desktop.postMessage('clear-captures');
   };
   desktop.addEventListener('message', ({ data }) => {
-    if (typeof data !== 'string') return;
+    if (typeof data !== 'string' || data.startsWith('updates|')) return;
     if (data.startsWith('hotkeys|') || data.startsWith('saved-hotkeys|')) receiveHotkeys(data);
     else if (data.startsWith('recorded-hotkey|')) {
       if (hotkeysDialog.open && recordingHotkey >= 0) {
