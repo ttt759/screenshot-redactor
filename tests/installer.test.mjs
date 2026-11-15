@@ -12,7 +12,7 @@ test('Windows installer and unpacked program each occupy less than 30 MB', { ski
   assert.ok((await stat(join(root, installer))).size < 30_000_000, 'Installer exceeds 30 MB');
   assert.ok((await stat(join(root, portable))).size < 30_000_000, 'Portable ZIP exceeds 30 MB');
   const contents = unzipSync(await readFile(join(root, portable)));
-  for (const file of ['ScreenshotRedactor.exe', 'WebView2Loader.dll', 'Microsoft.Web.WebView2.Core.dll', 'docs/index.html']) {
+  for (const file of ['ScreenshotRedactor.exe', 'WebView2Loader.dll', 'Microsoft.Web.WebView2.Core.dll', 'docs/index.html', 'docs/desktop-updates.mjs']) {
     assert.ok(contents[file]?.length, `Portable ZIP missing ${file}`);
   }
   const app = join(root, 'win-unpacked');

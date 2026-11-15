@@ -44,6 +44,7 @@ try {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.getByRole('button', { name: '选择图片', exact: true }).waitFor();
+  await page.locator('#desktop-update').waitFor();
   assert.equal(await page.locator('.file-row').count(), 0);
   assert.equal(page.url(), 'https://screenshot-redactor.local/index.html');
   assert.deepEqual(await page.evaluate(() => [isSecureContext, typeof window.require, typeof crypto.randomUUID]), [true, 'undefined', 'function']);
