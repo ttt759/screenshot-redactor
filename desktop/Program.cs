@@ -17,7 +17,9 @@ internal static class Program
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        if (DesktopUpdates.TryStartUpdatedPortable()) return;
         using (var window = new RedactorWindow()) Application.Run(window);
+        DesktopUpdates.StartPendingUpdate();
     }
 }
 
@@ -33,6 +35,7 @@ internal sealed class RedactorWindow : Form
         { "index.html", "text/html; charset=utf-8" }, { "styles.css", "text/css; charset=utf-8" },
         { "app.mjs", "text/javascript; charset=utf-8" }, { "geometry.mjs", "text/javascript; charset=utf-8" },
         { "icons.mjs", "text/javascript; charset=utf-8" }, { "images.mjs", "text/javascript; charset=utf-8" },
+        { "desktop-updates.mjs", "text/javascript; charset=utf-8" }, { "desktop-updates.css", "text/css; charset=utf-8" },
         { "vendor/fflate.js", "text/javascript; charset=utf-8" }, { "favicon.svg", "image/svg+xml" },
         { "samples/account.png", "image/png" }, { "samples/account-team.png", "image/png" },
         { "samples/account-studio.png", "image/png" }, { "samples/checkout.jpg", "image/jpeg" },
@@ -62,12 +65,13 @@ internal sealed class RedactorWindow : Form
             browser.Settings.AreDevToolsEnabled = false;
             browser.Settings.AreDefaultContextMenusEnabled = false;
             browser.Settings.AreHostObjectsAllowed = false;
-            browser.Settings.IsWebMessageEnabled = false;
+            browser.Settings.IsWebMessageEnabled = true;
             browser.NewWindowRequested += (s, e) => { e.Handled = true; };
             browser.PermissionRequested += (s, e) => { e.State = CoreWebView2PermissionState.Deny; };
             browser.NavigationStarting += (s, e) => { e.Cancel = e.Uri != Home; };
             browser.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All, CoreWebView2WebResourceRequestSourceKinds.All);
             browser.WebResourceRequested += ServeLocalAsset;
+            DesktopUpdates.Attach(this, browser, Home);
             browser.Navigate(Home);
         }
         catch (WebView2RuntimeNotFoundException)
