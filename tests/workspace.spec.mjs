@@ -59,16 +59,7 @@ test('changes a selected mask style and flattens opaque color or mosaic into the
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: '仍然导出' }).click();
   const png = await readFile(await (await pending).path());
-  const exported = await page.evaluate(async (encoded) => {
-    const blob = new Blob([Uint8Array.from(atob(encoded), (letter) => letter.charCodeAt(0))], { type: 'image/png' });
-    const bitmap = await createImageBitmap(blob);
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const context = canvas.getContext('2d');
-    context.drawImage(bitmap, 0, 0);
-    bitmap.close();
-    return Array.from(context.getImageData(446, 403, 1, 1).data);
-  }, png.toString('base64'));
-  expect(exported).toEqual(tinted);
+  expect(await imagePixel(page, png, 446, 403)).toEqual(tinted);
 });
 
 test('fine-tunes a base color without changing the preset and can restore it when reopened', async ({ page }) => {
@@ -124,6 +115,101 @@ test('draws consecutive masks and moves and resizes them without switching tools
   try { await drawBox(155, 125, 220, 155); }
   finally { await page.keyboard.up('Alt'); }
   await expect(masks).toHaveCount(3);
+});
+
+async function imagePixel(page, png, x, y) {
+  return page.evaluate(async ({ encoded, x, y }) => {
+    const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+    const image = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    const canvas = new OffscreenCanvas(1, 1);
+    const context = canvas.getContext('2d');
+    context.drawImage(image, x, y, 1, 1, 0, 0, 1, 1);
+    image.close();
+    return Array.from(context.getImageData(0, 0, 1, 1).data);
+  }, { encoded: png.toString('base64'), x, y });
+}
+
+for (const mosaicFirst of [false, true]) {
+  test(`keeps solid masks on top in thumbnails and PNG when ${mosaicFirst ? 'mosaic' : 'solid'} is drawn first`, async ({ page }) => {
+    await openSamples(page);
+    await page.locator('.file-row').nth(3).click();
+    const draw = page.getByRole('button', { name: '画遮挡框', exact: true });
+    const wheel = page.locator('#mask-style-current');
+    async function drawOnImage(from, to) {
+      const bounds = await page.locator('#artboard').boundingBox();
+      await drag(page, imagePoint(bounds, 1120, 700, ...from), imagePoint(bounds, 1120, 700, ...to));
+    }
+    await draw.click();
+    if (mosaicFirst) await wheel.press('ArrowUp');
+    await drawOnImage([120, 100], [760, 460]);
+    await draw.click();
+    await wheel.press(mosaicFirst ? 'ArrowDown' : 'ArrowUp');
+    await drawOnImage([950, 610], [300, 230]);
+
+    await page.getByRole('button', { name: /^批量应用遮挡/ }).click();
+    const map = page.locator('#batch-mask-map');
+    const thumbnail = await map.screenshot({ scale: 'css' });
+    const { width, height } = await map.boundingBox();
+    const black = [0, 0, 0, 255];
+    expect(await imagePixel(page, thumbnail, Math.round(width * 580 / 1120), Math.round(height * 380 / 700))).toEqual(black);
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('checkbox', { name: '标记为已检查' }).check();
+    const pending = page.waitForEvent('download');
+    await page.getByRole('button', { name: '导出当前 PNG' }).click();
+    const result = await readFile(await (await pending).path());
+    expect(await imagePixel(page, result, 580, 380)).toEqual(black);
+  });
+}
+
+test('coalesces mask dragging and keeps the untouched mosaic canvas in place', async ({ page }) => {
+  await openSamples(page);
+  const masks = page.locator('#masks .mask');
+  await page.locator('#mask-style-current').press('ArrowUp');
+  await expect(masks.first().locator('canvas')).toHaveCount(1);
+  await page.evaluate(() => {
+    window.mosaicDuringDrag = document.querySelector('#masks canvas');
+    document.querySelector('#stage').addEventListener('pointerdown', (event) => { window.maskPointer = event.pointerId; }, { once: true });
+  });
+  const bounds = await masks.nth(1).boundingBox();
+  const x = bounds.x + bounds.width / 2;
+  const y = bounds.y + bounds.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  const before = await masks.nth(1).getAttribute('style');
+  const state = await page.evaluate(({ x, y }) => {
+    const requestFrame = window.requestAnimationFrame;
+    const queued = [];
+    window.requestAnimationFrame = (callback) => queued.push(callback);
+    try {
+      const artboard = document.getElementById('artboard');
+      for (const dx of [10, 20, 30]) {
+        artboard.dispatchEvent(new PointerEvent('pointermove', { pointerId: window.maskPointer, clientX: x + dx, clientY: y, buttons: 1 }));
+      }
+      const untouched = () => window.mosaicDuringDrag === document.querySelector('#masks canvas');
+      const beforeFrame = document.querySelectorAll('#masks .mask')[1].getAttribute('style');
+      queued.forEach((frame) => frame());
+      return { queued: queued.length, beforeFrame, untouched: untouched() };
+    } finally { window.requestAnimationFrame = requestFrame; }
+  }, { x, y });
+  expect(state).toEqual({ queued: 1, beforeFrame: before, untouched: true });
+  const during = await masks.nth(1).boundingBox();
+  expect(Math.abs(during.x - bounds.x - 30)).toBeLessThan(1);
+  await page.mouse.move(x + 60, y);
+  await page.mouse.up();
+  const committed = await masks.nth(1).boundingBox();
+  expect(Math.abs(committed.x - bounds.x - 60)).toBeLessThan(1);
+  const style = await masks.nth(1).getAttribute('style');
+  await page.mouse.move(x + 60, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 82, y);
+  await expect(masks.nth(1)).not.toHaveAttribute('style', style);
+  await page.locator('#artboard').evaluate((node) => {
+    node.dispatchEvent(new PointerEvent('pointercancel', { pointerId: window.maskPointer }));
+  });
+  await page.mouse.up();
+  await expect(masks.nth(1)).toHaveAttribute('style', style);
+  expect(await page.evaluate(() => window.mosaicDuringDrag === document.querySelector('#masks canvas'))).toBe(true);
 });
 
 test('cycles through distinct opaque mosaic textures in the editor and preview', async ({ page }) => {

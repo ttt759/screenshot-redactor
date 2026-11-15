@@ -8,6 +8,7 @@ const artboard = $('artboard');
 const fileList = $('file-list');
 const screenshotRows = new WeakMap();
 const masks = $('masks');
+const maskNodes = new Map();
 const preview = $('preview');
 const source = $('source');
 const dialog = $('export-dialog');
@@ -51,6 +52,9 @@ let view = 'edit';
 let selected = null;
 let zoom = null;
 let gesture = null;
+let gestureFrame = null;
+let pendingMove = null;
+let maskEntry;
 let spacePan = false;
 let busy = false;
 let importsPending = 0;
@@ -179,37 +183,71 @@ function layoutArtboard() {
 
 function renderMasks() {
   const entry = active();
-  if (!entry) {
-    masks.replaceChildren();
-    return;
-  }
   const boxes = gesture?.mode === 'draw' && gesture.draft ? [...entry.boxes, gesture.draft] : entry.boxes;
-  // Match the export's stacking while keeping file order for keyboard and batch operations.
-  masks.replaceChildren(...boxes.map((box) => {
-    const node = document.createElement('div');
+  const visibleIds = new Set(boxes.map(({ id }) => id));
+  for (const id of maskNodes.keys()) {
+    if (!visibleIds.has(id)) removeMaskNode(id);
+  }
+  for (const [position, box] of boxes.entries()) {
     const draft = gesture?.mode === 'draw' && box === gesture.draft;
     const display = gesture?.id === box.id && gesture.draft ? gesture.draft : box;
-    node.className = draft ? 'mask draft' : 'mask';
+    const node = updateMaskNode(entry, display, draft);
+    const next = masks.children[position];
+    if (node !== next) masks.insertBefore(node, next ?? null);
+  }
+}
+
+function removeMaskNode(id) {
+  maskNodes.get(id)?.node.remove();
+  maskNodes.delete(id);
+}
+
+function updateMaskNode(entry, box, draft) {
+  let mask = maskNodes.get(box.id);
+  if (!mask) {
+    const node = document.createElement('div');
+    node.className = 'mask';
     node.dataset.id = box.id;
-    positionMask(node, display, entry);
-    if (isMosaic(display.style)) {
-      node.classList.add('mosaic');
-      node.classList.toggle('soft', display.style === 'soft');
-      node.append(mosaicTile(entry.image, display));
-    } else {
-      node.style.backgroundColor = maskColors[display.style] ?? maskColors.black;
-    }
-    if (box.id === selected && !draft) {
-      node.classList.add('active');
-      for (const corner of corners) {
-        const handle = document.createElement('span');
-        handle.className = 'handle';
-        handle.dataset.handle = corner;
-        node.append(handle);
-      }
-    }
-    return node;
-  }));
+    mask = { node, box: null, texture: null, handles: [] };
+    maskNodes.set(box.id, mask);
+  }
+  const { node } = mask;
+  if (mask.box !== box && (!mask.box || !sameBox(mask.box, box))) {
+    positionMask(node, box, entry);
+    mask.texture = paintMaskSurface(node, entry, box, mask.texture);
+  }
+  mask.box = box;
+  node.classList.toggle('draft', draft);
+  const withHandles = box.id === selected && !draft;
+  node.classList.toggle('active', withHandles);
+  if (withHandles && !mask.handles.length) {
+    mask.handles = corners.map((corner) => {
+      const handle = document.createElement('span');
+      handle.className = 'handle';
+      handle.dataset.handle = corner;
+      return handle;
+    });
+    node.append(...mask.handles);
+  } else if (!withHandles && mask.handles.length) {
+    for (const handle of mask.handles) handle.remove();
+    mask.handles = [];
+  }
+  return node;
+}
+
+function paintMaskSurface(node, entry, box, previous) {
+  const textured = isMosaic(box.style);
+  node.classList.toggle('mosaic', textured);
+  node.classList.toggle('soft', box.style === 'soft');
+  node.style.backgroundColor = textured ? '' : maskColors[box.style] ?? maskColors.black;
+  if (textured) {
+    const tile = mosaicTile(entry.image, box);
+    if (previous) previous.replaceWith(tile);
+    else node.prepend(tile);
+    return tile;
+  }
+  previous?.remove();
+  return null;
 }
 
 function positionMask(node, box, entry) {
@@ -221,6 +259,11 @@ function positionMask(node, box, entry) {
 
 function renderEditor() {
   const entry = active();
+  if (entry !== maskEntry) {
+    masks.replaceChildren();
+    maskNodes.clear();
+    maskEntry = entry;
+  }
   const editing = Boolean(entry) && view === 'edit';
   $('active-name').textContent = entry?.name ?? '编辑区';
   $('active-detail').textContent = entry ? `${entry.width} × ${entry.height} px · ${entry.boxes.length} 处遮挡${entry.demo ? ' · 虚构示例' : ''}` : '';
@@ -287,6 +330,7 @@ function renderEditor() {
 function goTo(position, nextView = view) {
   if (!entries[position]) return;
   const keepListFocus = fileList.contains(document.activeElement);
+  clearGestureFrame();
   gesture = null;
   selected = null;
   zoom = null;
@@ -319,6 +363,7 @@ function revealScreenshot(position) {
 
 function changeView(nextView) {
   if (!active()) return;
+  clearGestureFrame();
   gesture = null;
   view = nextView;
   if (view === 'preview') selected = null;
@@ -360,7 +405,6 @@ function removeScreenshot() {
     tool = 'draw';
     selected = zoom = null;
     source.removeAttribute('src');
-    masks.replaceChildren();
     renderRows();
     renderEditor();
     $('empty-import').focus({ preventScroll: true });
@@ -467,11 +511,7 @@ function renderBatchMasks(entry) {
     const overlay = document.createElement('span');
     overlay.className = 'batch-mask-overlay';
     positionMask(overlay, box, entry);
-    if (isMosaic(box.style)) {
-      overlay.classList.toggle('soft', box.style === 'soft');
-      overlay.append(mosaicTile(entry.image, box));
-    }
-    else overlay.style.backgroundColor = maskColors[box.style] ?? maskColors.black;
+    paintMaskSurface(overlay, entry, box);
     const marker = document.createElement('span');
     marker.className = 'mask-marker';
     marker.textContent = position + 1;
@@ -673,19 +713,44 @@ function updateGesture(event) {
   }
 }
 
-artboard.addEventListener('pointermove', (event) => {
-  if (gesture?.pointer !== event.pointerId) return;
+function panGesture(event) {
+  stage.scrollTo(gesture.left + gesture.screenX - event.clientX, gesture.top + gesture.screenY - event.clientY);
+}
+
+function clearGestureFrame() {
+  if (gestureFrame !== null) cancelAnimationFrame(gestureFrame);
+  gestureFrame = pendingMove = null;
+}
+
+function drawGestureFrame() {
+  const move = pendingMove;
+  gestureFrame = pendingMove = null;
+  if (!move || gesture?.pointer !== move.pointerId) return;
   if (gesture.mode === 'pan') {
-    stage.scrollTo(gesture.left + gesture.screenX - event.clientX, gesture.top + gesture.screenY - event.clientY);
+    panGesture(move);
     return;
   }
-  updateGesture(event);
-  renderMasks();
+  updateGesture(move);
+  const draft = gesture.mode === 'draw';
+  if (!gesture.draft) {
+    if (draft) removeMaskNode(gesture.id);
+    return;
+  }
+  const node = updateMaskNode(active(), gesture.draft, draft);
+  if (!node.parentNode) masks.append(node);
+}
+
+artboard.addEventListener('pointermove', (event) => {
+  if (gesture?.pointer !== event.pointerId) return;
+  pendingMove = event;
+  if (gestureFrame === null) gestureFrame = requestAnimationFrame(drawGestureFrame);
 });
 
 artboard.addEventListener('pointerup', (event) => {
   if (gesture?.pointer !== event.pointerId) return;
+  clearGestureFrame();
   if (gesture.mode === 'pan') {
+    panGesture(event);
     gesture = null;
     renderCanvasTool();
     return;
@@ -704,6 +769,7 @@ artboard.addEventListener('pointerup', (event) => {
 for (const eventName of ['pointercancel', 'lostpointercapture']) {
   artboard.addEventListener(eventName, (event) => {
     if (gesture?.pointer !== event.pointerId) return;
+    clearGestureFrame();
     gesture = null;
     renderEditor();
   });

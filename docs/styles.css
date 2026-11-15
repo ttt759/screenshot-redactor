@@ -212,13 +212,14 @@ dialog li { padding: 5px 0; overflow-wrap: anywhere; font-size: 13px; }
 .batch-picker { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 16px; overflow: auto; min-height: 0; margin-bottom: 15px; }
 .batch-options { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .batch-options h3 { font-size: 13px; }
-.batch-mask-map { position: relative; align-self: center; background: #f2eff4; overflow: hidden; border: 1px solid var(--line); border-radius: 5px; }
+.batch-mask-map { position: relative; isolation: isolate; align-self: center; background: #f2eff4; overflow: hidden; border: 1px solid var(--line); border-radius: 5px; }
 .batch-mask-map img { display: block; width: 100%; height: 100%; }
-.batch-mask-overlay { position: absolute; background: #000; border: 1px solid #e4769a; }
+.batch-mask-overlay { position: absolute; z-index: 1; background: #000; border: 1px solid #e4769a; }
+.batch-mask-overlay.mosaic { z-index: 0; }
 .batch-mask-overlay canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
 .mask.soft canvas, .batch-mask-overlay.soft canvas { image-rendering: auto; }
 .batch-mask-overlay.unselected { border-color: #9f9aa7; }
-.mask-marker { position: absolute; z-index: 1; min-width: 15px; min-height: 15px; display: grid; place-items: center; padding: 0 2px; color: #fff; background: var(--accent); border-radius: 4px; font-size: 9px; line-height: 1; }
+.mask-marker { position: absolute; z-index: 2; min-width: 15px; min-height: 15px; display: grid; place-items: center; padding: 0 2px; color: #fff; background: var(--accent); border-radius: 4px; font-size: 9px; line-height: 1; }
 .mask-marker.unselected { background: #64636f; }
 .batch-controls { display: flex; align-items: center; justify-content: space-between; gap: 7px; margin: 2px 0 8px; font-size: 12px; color: var(--muted); }
 .batch-controls label, .batch-targets label, .batch-masks label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
