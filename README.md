@@ -4,11 +4,11 @@
 
 **[打开在线演示](https://ttt759.github.io/screenshot-redactor/)** · [下载最新版本](https://github.com/ttt759/screenshot-redactor/releases/latest)
 
-最新版本的「Assets」提供 Windows x64 安装包（EXE）和完整程序压缩包（ZIP）。安装版可从开始菜单打开，更新时运行新版安装包。ZIP 解压后双击 `ScreenshotRedactor.exe` 即可使用。两种版本都复用系统的 Microsoft Edge WebView2 运行时，支持离线导入、编辑和导出。缺少运行时的电脑首次打开时会提示前往微软下载页。
+最新版本的「Assets」提供 Windows x64 安装包（EXE）和完整程序压缩包（ZIP）。安装版可从开始菜单打开，安装完成页也可以勾选「创建桌面快捷方式」。ZIP 解压后双击 `ScreenshotRedactor.exe` 即可使用。两种版本都复用系统的 Microsoft Edge WebView2 运行时，支持离线导入、编辑和导出。缺少运行时的电脑首次打开时会提示前往微软下载页。
 
 Windows 版启动时会在后台检查 GitHub，也可以点「检查更新」。发现新版后，点击「更新到…」下载。校验完成后，安装版可一键覆盖安装并重启。便携版会解压到新的本机目录并打开，下次从原来的位置启动也会进入新版。更新前先导出需要保留的编辑结果，操作结束后本机截图历史和快捷键仍可使用。此前下载的无更新功能版本需要手动下载一次。联网仅用于检查和下载更新。
 
-发布更新时，将 GitHub Release 设为 Latest，上传对应版本的 Windows 安装包和便携 ZIP。同版本覆盖时还需在发布说明里更新 `<!-- screenshot-redactor-build: 0.3.19 -->` 中的内部构建号。
+发布更新时，将 GitHub Release 设为 Latest，上传对应版本的 Windows 安装包和便携 ZIP。同版本覆盖时还需在发布说明里更新 `<!-- screenshot-redactor-build: 0.3.20 -->` 中的内部构建号。
 
 ![截图脱敏助手操作演示，将多个遮挡框应用到两张截图，逐张检查并导出 ZIP](./demo.gif)
 
