@@ -7,9 +7,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>截图脱敏助手</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=0.3.16">
+  <link rel="stylesheet" href="./styles.css?v=0.3.17">
   <script defer src="./vendor/fflate.js"></script>
-  <script type="module" src="./app.mjs?v=0.3.16"></script>
+  <script type="module" src="./app.mjs?v=0.3.17"></script>
 </head>
 <body>
   <header class="page-header">
@@ -131,16 +131,20 @@
 
   <dialog id="mosaic-dialog" aria-labelledby="mosaic-title" aria-describedby="mosaic-note">
     <div class="dialog-heading"><h2 id="mosaic-title">马赛克配色</h2><button id="close-mosaic" class="button icon-button" type="button" data-icon="close" aria-label="关闭"></button></div>
-    <p id="mosaic-note">给当前纹理上色，保留明暗变化。</p>
+    <p id="mosaic-note">先选基础色，可以直接应用，也可以继续微调。</p>
     <div class="mosaic-palette-preview" aria-hidden="true"></div>
     <div class="mosaic-palette-controls">
-      <div class="mosaic-presets" role="group" aria-label="预设颜色">
-        <button type="button" data-tint="#3275d0" aria-label="蓝色" style="--tint:#3275d0"></button>
-        <button type="button" data-tint="#b14271" aria-label="玫红" style="--tint:#b14271"></button>
-        <button type="button" data-tint="#7158ba" aria-label="紫色" style="--tint:#7158ba"></button>
-        <button type="button" data-tint="#258875" aria-label="青绿" style="--tint:#258875"></button>
+      <div class="mosaic-presets" role="group" aria-label="基础色">
+        <button type="button" data-tint="#3275d0" style="--tint:#3275d0">蓝色</button>
+        <button type="button" data-tint="#b14271" style="--tint:#b14271">玫红</button>
+        <button type="button" data-tint="#7158ba" style="--tint:#7158ba">紫色</button>
+        <button type="button" data-tint="#258875" style="--tint:#258875">青绿</button>
       </div>
-      <label for="mosaic-color">自定义颜色</label><input id="mosaic-color" type="color" value="#3275d0">
+      <div class="mosaic-refine">
+        <label for="mosaic-color">自定义颜色</label><input id="mosaic-color" type="color" value="#3275d0">
+        <output id="mosaic-hex" for="mosaic-color">#3275D0</output>
+        <button id="restore-mosaic-base" class="button compact" type="button" disabled>恢复基础色</button>
+      </div>
     </div>
     <div class="dialog-actions"><button id="reset-mosaic" class="button subtle" type="button">使用原图配色</button><button id="apply-mosaic" class="button primary" type="button">应用配色</button></div>
   </dialog>

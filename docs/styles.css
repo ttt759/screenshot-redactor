@@ -181,10 +181,14 @@ dialog li { padding: 5px 0; overflow-wrap: anywhere; font-size: 13px; }
 .mosaic-palette-preview { height: 64px; border-radius: 8px; background: var(--swatch); background-size: auto; box-shadow: inset 0 0 0 64px color-mix(in srgb, var(--mosaic-tint) 62%, transparent); }
 #mosaic-dialog[data-style="mosaic"] .mosaic-palette-preview { background-size: 32px 32px; }
 #mosaic-dialog[data-style="dots"] .mosaic-palette-preview { background-size: 22px 22px; }
-.mosaic-palette-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0 18px; font-size: 12px; }
-.mosaic-presets { display: flex; gap: 5px; margin-right: auto; }
-.mosaic-presets button { width: 30px; height: 32px; border: 3px solid #fff; border-radius: 7px; background: var(--tint); box-shadow: 0 0 0 1px var(--line); }
-.mosaic-presets button:hover, .mosaic-presets button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--accent); }
+.mosaic-palette-controls { display: grid; gap: 11px; margin: 14px 0 18px; font-size: 12px; }
+.mosaic-presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.mosaic-presets button { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: 51px; padding: 4px 0; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--ink); }
+.mosaic-presets button::before { content: ''; width: 18px; height: 18px; border-radius: 5px; background: var(--tint); }
+.mosaic-presets button:hover, .mosaic-presets button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.mosaic-refine { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.mosaic-refine output { color: var(--muted); font-variant-numeric: tabular-nums; }
+#restore-mosaic-base { margin-inline-start: auto; padding-inline: 6px; }
 #mosaic-color { width: 40px; height: 32px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; }
 #history-dialog { width: min(640px, calc(100vw - 32px)); }
 .hotkey-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px; }

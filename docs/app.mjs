@@ -23,6 +23,7 @@ const outgoingSwatch = $('mask-style-swatch-out');
 const mosaicColor = $('mosaic-color');
 const paletteButton = $('mosaic-palette');
 const colorPresets = [...mosaicDialog.querySelectorAll('[data-tint]')];
+const defaultMosaicBase = colorPresets[0].dataset.tint;
 const styleNames = { black: '纯黑', white: '纯白', gray: '深灰', brush: '笔刷', dots: '圆点', soft: '柔化', mosaic: '方块马赛克' };
 const maskStyles = Object.keys(styleNames);
 const desktop = globalThis.chrome?.webview;
@@ -42,7 +43,8 @@ let entries = [];
 let index = 0;
 let tool = 'draw';
 let maskStyle = 'black';
-let mosaicTint = null;
+let mosaicColors = {};
+let draftMosaicBase = defaultMosaicBase;
 let styleAnimations = [];
 let view = 'edit';
 let selected = null;
@@ -616,7 +618,7 @@ function updateGesture(event) {
     const box = pixelBounds(gesture.start, end, entry);
     const dragged = Math.hypot(event.clientX - gesture.screenX, event.clientY - gesture.screenY) >= 3;
     gesture.draft = dragged && box.width && box.height ? { ...box, id: gesture.id, style: maskStyle,
-      mosaicTint: isMosaic(maskStyle) ? mosaicTint : null } : null;
+      ...(isMosaic(maskStyle) ? mosaicColors : {}) } : null;
   } else {
     gesture.draft = gesture.mode === 'move' ? moveBox(gesture.original, dx, dy, entry)
       : resizeBox(gesture.original, gesture.handle, dx, dy, entry);
@@ -804,7 +806,7 @@ const paletteStyle = () => {
   const current = displayedMaskStyle();
   return isMosaic(current) ? current : 'mosaic';
 };
-const paletteTint = (box) => isMosaic(box?.style) ? box.mosaicTint : mosaicTint;
+const paletteColors = (box) => isMosaic(box?.style) ? box : mosaicColors;
 let styleDirection = 0;
 
 function renderStyleWheel(disabled) {
@@ -819,7 +821,7 @@ function renderStyleWheel(disabled) {
   styleWheel.dataset.style = current;
   styleButton.setAttribute('aria-label', `遮挡样式：${styleNames[current]}`);
   const previousTint = styleSwatch.style.getPropertyValue('--mosaic-tint');
-  const color = paletteTint(box);
+  const color = paletteColors(box).mosaicTint;
   const tint = isMosaic(current) ? color : null;
   styleSwatch.dataset.style = current;
   styleSwatch.style.setProperty('--mosaic-tint', tint ?? 'transparent');
@@ -849,16 +851,20 @@ function renderStyleWheel(disabled) {
   ];
 }
 
-function applyMaskStyle(style, tint = mosaicTint) {
+function applyMaskStyle(style, { mosaicTint, mosaicBase } = paletteColors(selectedMask())) {
   const entry = active();
   if (!entry || view !== 'edit' || gesture) return;
   maskStyle = style;
-  if (isMosaic(style)) mosaicTint = tint;
+  const textured = isMosaic(style);
+  if (textured) mosaicColors = { mosaicTint, mosaicBase };
   const old = selectedMask();
-  const next = { ...old, style, mosaicTint: isMosaic(style) ? tint : null };
+  const next = { ...old, style, mosaicTint: textured ? mosaicTint : undefined, mosaicBase: textured ? mosaicBase : undefined };
   if (old && !sameBox(old, next)) editBoxes(entry.boxes.map((box) => box === old ? next : box));
-  else renderStyleWheel(false);
-  if (isMosaic(style)) announce('纹理可能保留可辨认轮廓，敏感信息建议用纯色遮挡。');
+  else {
+    if (old && old.mosaicBase !== next.mosaicBase) entry.boxes = entry.boxes.map((box) => box === old ? next : box);
+    renderStyleWheel(false);
+  }
+  if (textured) announce('纹理可能保留可辨认轮廓，敏感信息建议用纯色遮挡。');
 }
 
 function stepMaskStyle(direction) {
@@ -895,20 +901,34 @@ function previewMosaicColor() {
   const tint = mosaicColor.value;
   mosaicDialog.dataset.style = paletteStyle();
   mosaicDialog.style.setProperty('--mosaic-tint', tint);
-  for (const preset of colorPresets) preset.setAttribute('aria-pressed', preset.dataset.tint === tint);
+  $('mosaic-hex').value = tint.toUpperCase();
+  setDisabled('restore-mosaic-base', draftMosaicBase === tint);
+  for (const preset of colorPresets) preset.setAttribute('aria-pressed', preset.dataset.tint === draftMosaicBase);
 }
 
 paletteButton.onclick = () => {
   if (openDialog()) return;
-  mosaicColor.value = paletteTint(selectedMask()) ?? '#3275d0';
+  const { mosaicTint, mosaicBase } = paletteColors(selectedMask());
+  draftMosaicBase = mosaicBase ?? colorPresets.find((preset) => preset.dataset.tint === mosaicTint)?.dataset.tint ?? defaultMosaicBase;
+  mosaicColor.value = mosaicTint ?? draftMosaicBase;
   previewMosaicColor();
   mosaicDialog.showModal();
 };
-for (const preset of colorPresets) preset.onclick = () => { mosaicColor.value = preset.dataset.tint; previewMosaicColor(); };
+function useMosaicBase(base) {
+  draftMosaicBase = base;
+  mosaicColor.value = base;
+  previewMosaicColor();
+}
+
+for (const preset of colorPresets) preset.onclick = () => useMosaicBase(preset.dataset.tint);
 mosaicColor.oninput = previewMosaicColor;
+$('restore-mosaic-base').onclick = () => useMosaicBase(draftMosaicBase);
 $('close-mosaic').onclick = () => mosaicDialog.close();
-$('reset-mosaic').onclick = () => { applyMaskStyle(paletteStyle(), null); mosaicDialog.close(); };
-$('apply-mosaic').onclick = () => { applyMaskStyle(paletteStyle(), mosaicColor.value); mosaicDialog.close(); };
+$('reset-mosaic').onclick = () => { applyMaskStyle(paletteStyle(), {}); mosaicDialog.close(); };
+$('apply-mosaic').onclick = () => {
+  applyMaskStyle(paletteStyle(), { mosaicTint: mosaicColor.value, mosaicBase: draftMosaicBase });
+  mosaicDialog.close();
+};
 
 const defaultHotkeys = ['6:120', '6:121'];
 const hotkeyLabels = ['截屏', '截图剪贴板'];

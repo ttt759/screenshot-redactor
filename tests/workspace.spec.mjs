@@ -71,6 +71,31 @@ test('changes a selected mask style and flattens opaque color or mosaic into the
   expect(exported).toEqual(tinted);
 });
 
+test('fine-tunes a base color without changing the preset and can restore it when reopened', async ({ page }) => {
+  await openSamples(page);
+  const button = page.getByRole('button', { name: /^配色/ });
+  const palette = page.getByRole('dialog', { name: '马赛克配色' });
+  const green = palette.getByRole('button', { name: '青绿', exact: true });
+  const picker = palette.getByLabel('自定义颜色');
+  await button.click();
+  await green.click();
+  await expect(picker).toHaveValue('#258875');
+  await picker.fill('#286b5f');
+  await expect(green).toHaveAttribute('aria-pressed', 'true');
+  await palette.getByRole('button', { name: '应用配色' }).click();
+  await expect(button).toHaveAccessibleName('配色：#286b5f');
+
+  await button.click();
+  await expect(green).toHaveAttribute('aria-pressed', 'true');
+  await expect(picker).toHaveValue('#286b5f');
+  const restore = palette.getByRole('button', { name: '恢复基础色' });
+  await restore.click();
+  await expect(picker).toHaveValue('#258875');
+  await expect(restore).toBeDisabled();
+  await palette.getByRole('button', { name: '应用配色' }).click();
+  await expect(button).toHaveAccessibleName('配色：#258875');
+});
+
 test('draws consecutive masks and moves and resizes them without switching tools', async ({ page }) => {
   await openSamples(page);
   await page.locator('.file-row').nth(3).click();
