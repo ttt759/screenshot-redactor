@@ -54,7 +54,8 @@ button, h1, h2, h3, p { margin: 0; }
 .file-actions .icon { width: 16px; height: 16px; }
 .button.review-start { background: var(--accent-soft); color: var(--accent); border-color: #efd5df; }
 .file-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: transparent; padding: 9px 8px; border: 1px solid transparent; border-radius: 10px; margin-bottom: 4px; }
-.file-row[aria-current="true"] { background: #faedf1; border-color: #f1d6e0; }
+.file-row[aria-current="true"] { background: #faedf1; border-color: #f1d6e0; box-shadow: inset 3px 0 0 var(--accent); }
+.file-row:focus-visible { outline-offset: -2px; }
 .thumb { display: block; flex: none; width: 66px; height: 48px; object-fit: contain; border: 1px solid #ebe6ed; border-radius: 5px; background: #eae7ed; }
 .file-label { min-width: 0; display: grid; gap: 5px; }
 .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 12px; font-weight: 680; }
@@ -76,6 +77,7 @@ progress::-moz-progress-bar { background: var(--accent); }
 .file-heading { min-width: 0; }
 .file-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 740; }
 .file-heading p { margin-top: 4px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+#operation-progress { color: var(--accent); font-weight: 650; }
 .segmented { display: flex; flex: none; background: #f1eef3; border-radius: 9px; padding: 3px; gap: 2px; }
 .segmented button { border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); padding: 6px 11px; font-size: 12px; white-space: nowrap; }
 .segmented button[aria-pressed="true"] { color: var(--ink); background: var(--white); border-color: #e9e5ed; font-weight: 680; box-shadow: 0 1px 2px #2822330b; }
@@ -167,7 +169,7 @@ kbd { display: inline-grid; place-items: center; min-width: 16px; height: 16px; 
 .review { gap: 7px; cursor: pointer; font-size: 13px; font-weight: 650; white-space: nowrap; }
 .review input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 #confirm-next .icon { order: 1; width: 14px; }
-.toast { position: fixed; z-index: 4; bottom: 20px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 30px); border-radius: 9px; padding: 11px 16px; color: #fff; background: #2c2932; box-shadow: 0 5px 24px #24232b38; overflow-wrap: anywhere; }
+.toast { position: fixed; z-index: 4; bottom: 20px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 30px); border-radius: 9px; padding: 11px 16px; color: #fff; background: #2c2932; box-shadow: 0 5px 24px #24232b38; overflow-wrap: anywhere; pointer-events: none; }
 
 dialog { width: min(460px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 15px; padding: 22px; color: var(--ink); box-shadow: 0 18px 80px #24232b35; }
 dialog::backdrop { background: #211a2d70; }

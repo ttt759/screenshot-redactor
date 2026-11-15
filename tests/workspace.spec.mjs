@@ -284,10 +284,22 @@ test('organizes imported screenshots and opens a specific unchecked preview from
   await expect(button('成品预览')).toHaveAttribute('aria-pressed', 'true');
   await button('确认并继续').click();
   await expect(rows.last()).toHaveAttribute('aria-current', 'true');
-  await button('确认并继续').click();
+  await button('确认完成').click();
+  await expect(button('下载 ZIP')).toBeFocused();
+  await page.evaluate(() => {
+    const original = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (...args) {
+      HTMLCanvasElement.prototype.toBlob = original;
+      window.resumeExport = () => original.apply(this, args);
+    };
+  });
   const pending = page.waitForEvent('download');
-  await button('导出全部 ZIP').click();
+  await button('下载 ZIP').click();
+  await expect(page.locator('#operation-progress')).toHaveText('正在导出第 1 / 2 张');
+  await expect(button('下载 ZIP')).toBeDisabled();
+  await page.evaluate(() => window.resumeExport());
   const zip = unzipSync(await readFile(await (await pending).path()));
+  await expect(page.locator('#operation-progress')).toBeHidden();
   expect(Object.keys(zip)).toEqual(['01-redacted.png', '02-redacted.png']);
   const width = (name) => new DataView(zip[name].buffer, zip[name].byteOffset).getUint32(16);
   expect(width('01-redacted.png')).toBe(1024);
@@ -644,9 +656,9 @@ test('confirms a preview and jumps to the next unreviewed image across the end o
   await expect(rows.nth(4)).toHaveAttribute('aria-current', 'true');
   await next.click();
   await expect(rows.nth(0)).toHaveAttribute('aria-current', 'true');
-  await next.click();
+  await page.getByRole('button', { name: '确认完成' }).click();
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', String(demoCount));
-  await expect(page.getByRole('status')).toContainText('已检查全部');
+  await expect(page.getByRole('button', { name: '下载 ZIP', exact: true })).toBeFocused();
 });
 
 test('keeps preview actions visible on a narrow mobile viewport', async ({ page }) => {
@@ -681,11 +693,31 @@ test('pauses export and batch actions while an import is still being read', asyn
     };
   });
   await page.locator('#file-input').setInputFiles(resolve('docs/samples/account.png'));
+  const progress = page.locator('#operation-progress');
+  await expect(progress).toHaveText('正在读取第 1 / 1 张');
   await expect(page.getByRole('button', { name: '导出全部 ZIP' })).toBeDisabled();
   await expect(page.getByRole('button', { name: '批量应用遮挡' })).toBeDisabled();
   await page.evaluate(() => window.resumeFileRead());
   await expect(page.locator('.file-row')).toHaveCount(1);
+  await expect(progress).toBeHidden();
   await expect(page.getByRole('button', { name: '导出全部 ZIP' })).toBeEnabled();
+});
+
+test('navigates the thumbnail list by keyboard with focus following the current image', async ({ page }) => {
+  await openSamples(page);
+  const rows = page.locator('.file-row');
+  await rows.first().focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(rows.nth(1)).toBeFocused();
+  await expect(rows.nth(1)).toHaveAttribute('aria-current', 'true');
+  await expect(rows.first()).toHaveAttribute('tabindex', '-1');
+  await page.keyboard.press('End');
+  await expect(rows.last()).toBeFocused();
+  await expect(rows.last()).toBeInViewport({ ratio: 1 });
+  await page.keyboard.press('Home');
+  await page.keyboard.press('s');
+  await expect(rows.nth(1)).toBeFocused();
+  await expect(rows.nth(1)).toHaveAttribute('aria-current', 'true');
 });
 
 test('navigates and starts drawing with left-hand shortcuts in edit and preview', async ({ page }) => {

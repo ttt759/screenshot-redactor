@@ -6,6 +6,7 @@ const $ = (id) => document.getElementById(id);
 const stage = $('stage');
 const artboard = $('artboard');
 const fileList = $('file-list');
+const screenshotRows = new WeakMap();
 const masks = $('masks');
 const preview = $('preview');
 const source = $('source');
@@ -53,6 +54,8 @@ let gesture = null;
 let spacePan = false;
 let busy = false;
 let importsPending = 0;
+let importProgress = '';
+let exportProgress = '';
 let queue = Promise.resolve();
 let pendingExport = null;
 let pendingBatch = null;
@@ -83,35 +86,58 @@ function announce(message) {
   toastTimer = setTimeout(() => { toast.hidden = true; }, 4500);
 }
 
+function renderOperationProgress() {
+  const status = $('operation-progress');
+  const text = exportProgress || importProgress;
+  status.hidden = !text;
+  $('active-detail').hidden = Boolean(text);
+  if (status.textContent !== text) status.textContent = text;
+}
+
+function createScreenshotRow(entry) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'file-row';
+  row.title = entry.name;
+  const thumb = document.createElement('img');
+  thumb.className = 'thumb';
+  thumb.alt = '';
+  thumb.src = entry.url;
+  thumb.decoding = 'async';
+  const label = document.createElement('span');
+  label.className = 'file-label';
+  const name = document.createElement('span');
+  name.className = 'file-name';
+  name.textContent = entry.name;
+  const state = document.createElement('span');
+  state.className = 'file-state';
+  label.append(name, state);
+  row.append(thumb, label);
+  row.onclick = () => {
+    const position = entries.indexOf(entry);
+    if (position !== index) goTo(position);
+  };
+  const refs = { row, state };
+  screenshotRows.set(entry, refs);
+  return refs;
+}
+
 function renderRows() {
-  const focusedRow = fileList.contains(document.activeElement) ? document.activeElement.dataset.index : null;
   const rows = entries.map((entry, position) => {
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'file-row';
-    row.title = entry.name;
-    row.dataset.index = position;
+    const { row, state } = screenshotRows.get(entry) ?? createScreenshotRow(entry);
+    row.tabIndex = position === index ? 0 : -1;
     if (position === index) row.setAttribute('aria-current', 'true');
-    const thumb = document.createElement('img');
-    thumb.className = 'thumb';
-    thumb.alt = '';
-    thumb.src = entry.url;
-    const label = document.createElement('span');
-    label.className = 'file-label';
-    const name = document.createElement('span');
-    name.className = 'file-name';
-    name.textContent = entry.name;
-    const state = document.createElement('span');
-    state.className = entry.checked ? 'file-state checked' : 'file-state';
-    state.textContent = entry.checked ? '已检查' : '待检查';
-    if (entry.boxes.length) state.append(` · ${entry.boxes.length} 处遮挡`);
-    label.append(name, state);
-    row.append(thumb, label);
-    row.addEventListener('click', () => goTo(position));
+    else row.removeAttribute('aria-current');
+    state.classList.toggle('checked', entry.checked);
+    const text = (entry.checked ? '已检查' : '待检查') + (entry.boxes.length ? ` · ${entry.boxes.length} 处遮挡` : '');
+    if (state.textContent !== text) state.textContent = text;
     return row;
   });
-  fileList.replaceChildren(...rows);
-  if (focusedRow !== null) rows[Number(focusedRow)]?.focus({ preventScroll: true });
+  if (rows.length !== fileList.childElementCount || rows.some((row, position) => row !== fileList.children[position])) {
+    const focused = document.activeElement;
+    fileList.replaceChildren(...rows);
+    if (fileList.contains(focused)) focused.focus({ preventScroll: true });
+  }
   $('file-count').textContent = entries.length;
   $('file-position').textContent = `第 ${index + 1} / ${entries.length} 张`;
   const reviewed = entries.filter((entry) => entry.checked).length;
@@ -258,6 +284,7 @@ function renderEditor() {
 
 function goTo(position, nextView = view) {
   if (!entries[position]) return;
+  const keepListFocus = fileList.contains(document.activeElement);
   gesture = null;
   selected = null;
   zoom = null;
@@ -267,7 +294,17 @@ function goTo(position, nextView = view) {
   renderRows();
   renderEditor();
   revealScreenshot(position);
+  if (keepListFocus) fileList.children[position].focus({ preventScroll: true });
 }
+
+fileList.addEventListener('keydown', (event) => {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !event.target.matches('.file-row')) return;
+  const offset = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[event.key];
+  const position = event.key === 'Home' ? 0 : event.key === 'End' ? entries.length - 1 : index + offset;
+  if (!Number.isInteger(position)) return;
+  event.preventDefault();
+  if (position !== index) goTo(position);
+});
 
 function revealScreenshot(position) {
   const list = fileList.getBoundingClientRect();
@@ -345,11 +382,16 @@ function editBoxes(boxes) {
 function renderReviewControls() {
   const entry = active();
   const next = $('confirm-next');
-  next.hidden = !entry || view !== 'preview';
+  const download = $('review-export');
+  const reviewing = Boolean(entry) && view === 'preview';
+  const pending = reviewing ? entries.filter((target) => !target.checked).length : 0;
+  next.hidden = !reviewing || pending === 0;
+  next.disabled = next.hidden;
+  download.hidden = !reviewing || pending > 0;
+  download.disabled = download.hidden || busy || importsPending > 0;
   if (next.hidden) return;
-  $('confirm-next-label').textContent = entry.checked ? '下一张待检查' : '确认并继续';
+  $('confirm-next-label').textContent = entry.checked ? '下一张待检查' : pending === 1 ? '确认完成' : '确认并继续';
   next.title = `${$('confirm-next-label').textContent} (E)`;
-  next.disabled = entry.checked && entries.every((target) => target.checked);
 }
 
 function confirmAndContinue() {
@@ -361,8 +403,12 @@ function confirmAndContinue() {
   } else {
     renderRows();
     renderEditor();
-    announce('已检查全部截图，可以导出 ZIP。');
-    $('export-all').focus({ preventScroll: true });
+    $('toast').hidden = true;
+    const download = $('review-export');
+    if (!download.disabled) {
+      download.focus({ preventScroll: true });
+      download.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
   }
 }
 
@@ -668,12 +714,17 @@ function enqueue(task) {
 function addFiles(files) {
   if (!files.length) return;
   importsPending++;
+  if (!importProgress) {
+    importProgress = `准备读取 ${files.length} 张截图`;
+    renderOperationProgress();
+  }
   renderEditor();
-  announce(`正在读取 ${files.length} 张截图…`);
   enqueue(async () => {
     const imported = [];
     const failures = [];
-    for (const file of files) {
+    for (const [position, file] of files.entries()) {
+      importProgress = `正在读取第 ${position + 1} / ${files.length} 张`;
+      renderOperationProgress();
       try {
         imported.push(makeEntry(file.name, await loadFile(file)));
       } catch (error) {
@@ -694,10 +745,11 @@ function addFiles(files) {
     }
     showImportFailures(failures);
     if (imported.length) announce(`已导入 ${imported.length} 张截图`);
-    else $('toast').hidden = true;
   });
   queue = queue.finally(() => {
     importsPending--;
+    importProgress = importsPending ? '等待读取下一批截图' : '';
+    renderOperationProgress();
     renderEditor();
   });
 }
@@ -772,16 +824,22 @@ function reviewScreenshot(entry) {
 
 async function runExport({ targets, batch, filename }) {
   busy = true;
+  exportProgress = batch ? `正在打包 ${targets.length} 张截图` : '正在生成 PNG';
+  renderOperationProgress();
   renderEditor();
   try {
     // Edits replace the boxes array, so the export stays tied to the reviewed snapshot.
-    await exportImages(targets.map((entry) => ({ ...entry })), batch, filename,
-      (current, total) => announce(`正在导出 ${current} / ${total}`));
+    await exportImages(targets.map((entry) => ({ ...entry })), batch, filename, (current, total) => {
+      exportProgress = `正在导出第 ${current} / ${total} 张`;
+      renderOperationProgress();
+    });
     announce(batch ? `已导出 ${targets.length} 张截图` : `已导出 ${filename}`);
   } catch {
     announce('导出失败。请重试，或先单独导出较大的截图。');
   } finally {
     busy = false;
+    exportProgress = '';
+    renderOperationProgress();
     renderEditor();
   }
 }
@@ -1200,6 +1258,7 @@ $('batch-select-all').onchange = (event) => {
 $('apply-batch').onclick = applyBatch;
 $('export-one').onclick = () => requestExport(false);
 $('export-all').onclick = () => requestExport(true);
+$('review-export').onclick = () => requestExport(true);
 $('close-dialog').onclick = () => dialog.close();
 dialog.addEventListener('close', () => { pendingExport = null; });
 $('start-review').onclick = () => {
