@@ -38,20 +38,32 @@ try {
 }
 
 $compiler = Join-Path $env:SystemRoot 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
-$metadata = Join-Path $sdkCache "version-$buildVersion.cs"
+$metadata = Join-Path $sdkCache "version-$version-$buildVersion.cs"
 @"
 [assembly: System.Reflection.AssemblyVersion("$buildVersion.0")]
 [assembly: System.Reflection.AssemblyFileVersion("$buildVersion.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("$version")]
+internal static class DesktopBuild {
+    internal const string Version = "$version";
+    internal const string Build = "$buildVersion";
+}
 "@ | Set-Content -LiteralPath $metadata -Encoding UTF8
 $icon = Join-Path $root 'desktop/icon.ico'
 $manifest = Join-Path $root 'desktop/app.manifest'
 $exe = Join-Path $output 'ScreenshotRedactor.exe'
 & $compiler /nologo /codepage:65001 /target:winexe /platform:x64 /optimize+ "/out:$exe" "/win32icon:$icon" "/win32manifest:$manifest" `
-    /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
+    /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Net.Http.dll /reference:System.Web.Extensions.dll /reference:System.IO.Compression.dll `
     "/reference:$(Join-Path $output 'Microsoft.Web.WebView2.Core.dll')" "/reference:$(Join-Path $output 'Microsoft.Web.WebView2.WinForms.dll')" `
-    (Join-Path $root 'desktop/Program.cs') $metadata
+    (Join-Path $root 'desktop/Program.cs') (Join-Path $root 'desktop/DesktopUpdates.cs') (Join-Path $root 'desktop/UpdateRelease.cs') $metadata
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 Copy-Item -LiteralPath (Join-Path $root 'docs') -Destination $output -Recurse -Force
+$desktopDocs = Join-Path $output 'docs'
+Copy-Item -LiteralPath (Join-Path $root 'desktop/updates.mjs') -Destination (Join-Path $desktopDocs 'desktop-updates.mjs')
+Copy-Item -LiteralPath (Join-Path $root 'desktop/updates.css') -Destination (Join-Path $desktopDocs 'desktop-updates.css')
+$index = Join-Path $desktopDocs 'index.html'
+$markup = Get-Content -LiteralPath $index -Raw
+$assets = '<link rel="stylesheet" href="./desktop-updates.css"><script type="module" src="./desktop-updates.mjs"></script>'
+Set-Content -LiteralPath $index -Value $markup.Replace('</head>', ($assets + '</head>')) -Encoding utf8
 $portable = Join-Path (Split-Path $output -Parent) "screenshot-redactor-portable-$version-windows-x64.zip"
 if (Test-Path -LiteralPath $portable) { Remove-Item -LiteralPath $portable -Force }
 [IO.Compression.ZipFile]::CreateFromDirectory($output, $portable, [IO.Compression.CompressionLevel]::Optimal, $false)
