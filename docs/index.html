@@ -7,9 +7,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>截图脱敏助手</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=0.3.21">
+  <link rel="stylesheet" href="./styles.css?v=0.3.22">
   <script defer src="./vendor/fflate.js"></script>
-  <script type="module" src="./app.mjs?v=0.3.21"></script>
+  <script type="module" src="./app.mjs?v=0.3.22"></script>
 </head>
 <body>
   <header class="page-header">
@@ -136,10 +136,13 @@
     <div class="mosaic-palette-preview" aria-hidden="true"></div>
     <div class="mosaic-palette-controls">
       <div class="mosaic-presets" role="group" aria-label="基础色">
+        <button type="button" data-tint="#d43b35" style="--tint:#d43b35">红色</button>
+        <button type="button" data-tint="#e27422" style="--tint:#e27422">橙色</button>
+        <button type="button" data-tint="#e0b628" style="--tint:#e0b628">黄色</button>
+        <button type="button" data-tint="#4b9b42" style="--tint:#4b9b42">绿色</button>
+        <button type="button" data-tint="#258875" style="--tint:#258875">青色</button>
         <button type="button" data-tint="#3275d0" style="--tint:#3275d0">蓝色</button>
-        <button type="button" data-tint="#b14271" style="--tint:#b14271">玫红</button>
         <button type="button" data-tint="#7158ba" style="--tint:#7158ba">紫色</button>
-        <button type="button" data-tint="#258875" style="--tint:#258875">青绿</button>
       </div>
       <div class="mosaic-refine">
         <label for="mosaic-color">自定义颜色</label><input id="mosaic-color" type="color" value="#3275d0">

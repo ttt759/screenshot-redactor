@@ -184,10 +184,14 @@ dialog li { padding: 5px 0; overflow-wrap: anywhere; font-size: 13px; }
 #mosaic-dialog[data-style="mosaic"] .mosaic-palette-preview { background-size: 32px 32px; }
 #mosaic-dialog[data-style="dots"] .mosaic-palette-preview { background-size: 22px 22px; }
 .mosaic-palette-controls { display: grid; gap: 11px; margin: 14px 0 18px; font-size: 12px; }
-.mosaic-presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.mosaic-presets { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
 .mosaic-presets button { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: 51px; padding: 4px 0; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--ink); }
 .mosaic-presets button::before { content: ''; width: 18px; height: 18px; border-radius: 5px; background: var(--tint); }
-.mosaic-presets button:hover, .mosaic-presets button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.mosaic-presets button:not([aria-pressed="true"]):hover { border-color: #cdbfca; background: #f7f5f8; }
+.mosaic-presets button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 400px) {
+  .mosaic-presets { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 .mosaic-refine { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
 .mosaic-refine output { color: var(--muted); font-variant-numeric: tabular-nums; }
 #restore-mosaic-base { margin-inline-start: auto; padding-inline: 6px; }

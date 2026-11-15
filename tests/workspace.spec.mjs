@@ -66,18 +66,21 @@ test('fine-tunes a base color without changing the preset and can restore it whe
   await openSamples(page);
   const button = page.getByRole('button', { name: /^配色/ });
   const palette = page.getByRole('dialog', { name: '马赛克配色' });
-  const green = palette.getByRole('button', { name: '青绿', exact: true });
+  const bases = palette.getByRole('group', { name: '基础色' }).getByRole('button');
+  const cyan = palette.getByRole('button', { name: '青色', exact: true });
   const picker = palette.getByLabel('自定义颜色');
   await button.click();
-  await green.click();
+  await expect(bases).toHaveText(['红色', '橙色', '黄色', '绿色', '青色', '蓝色', '紫色']);
+  await expect(palette.getByRole('button', { name: '蓝色' })).toHaveAttribute('aria-pressed', 'true');
+  await cyan.click();
   await expect(picker).toHaveValue('#258875');
   await picker.fill('#286b5f');
-  await expect(green).toHaveAttribute('aria-pressed', 'true');
+  await expect(cyan).toHaveAttribute('aria-pressed', 'true');
   await palette.getByRole('button', { name: '应用配色' }).click();
   await expect(button).toHaveAccessibleName('配色：#286b5f');
 
   await button.click();
-  await expect(green).toHaveAttribute('aria-pressed', 'true');
+  await expect(cyan).toHaveAttribute('aria-pressed', 'true');
   await expect(picker).toHaveValue('#286b5f');
   const restore = palette.getByRole('button', { name: '恢复基础色' });
   await restore.click();
