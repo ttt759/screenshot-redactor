@@ -25,15 +25,33 @@ const sample = await readFile(resolve('docs/samples/account.png'));
 for (let i = 0; i < 30; i++) {
   await writeFile(resolve(captureFolder, `20261114-120000-${String(i).padStart(3, '0')}-aabbccdd.png`), sample);
 }
+const appLogs = [];
 const app = spawn(executable, [], { env: { ...process.env, SCREENSHOT_REDACTOR_TEST_PROFILE: testProfile, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` } });
+app.stdout?.on('data', (chunk) => appLogs.push(chunk.toString()));
+app.stderr?.on('data', (chunk) => appLogs.push(chunk.toString()));
 const exited = new Promise((done) => app.once('close', done));
 let browser;
 try {
-  for (let attempt = 0; attempt < 60; attempt++) {
+  let cdpReady = false;
+  for (let attempt = 0; attempt < 120; attempt++) {
+    if (app.exitCode !== null) {
+      throw new Error(`ScreenshotRedactor.exe exited early with code ${app.exitCode}. Logs: ${appLogs.join('')}`);
+    }
     try {
-      if ((await fetch(`${endpoint}/json/version`, { signal: AbortSignal.timeout(500) })).ok) break;
+      if ((await fetch(`${endpoint}/json/version`, { signal: AbortSignal.timeout(500) })).ok) {
+        cdpReady = true;
+        break;
+      }
     } catch { /* Wait for WebView2 to start. */ }
     await delay(250);
+  }
+  if (!cdpReady) {
+    const { execFileSync } = await import('node:child_process');
+    let procs = '';
+    try { procs = execFileSync('tasklist', ['/FI', 'IMAGENAME eq ScreenshotRedactor.exe'], { encoding: 'utf8' }); } catch {}
+    let webviewProcs = '';
+    try { webviewProcs = execFileSync('tasklist', ['/FI', 'IMAGENAME eq msedgewebview2.exe'], { encoding: 'utf8' }); } catch {}
+    throw new Error(`WebView2 CDP did not open on ${endpoint} (exitCode=${app.exitCode}).\n${procs}\n${webviewProcs}\nLogs: ${appLogs.join('')}`);
   }
   browser = await chromium.connectOverCDP(endpoint, { timeout: 4000 });
   const context = browser.contexts()[0];

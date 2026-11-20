@@ -96,10 +96,12 @@ internal sealed class RedactorWindow : Form
             DesktopUpdates.Attach(this, browser, Home);
             browser.Navigate(Home);
         }
-        catch (WebView2RuntimeNotFoundException)
+        catch (WebView2RuntimeNotFoundException error)
         {
+            Console.Error.WriteLine(error);
             if (IsDisposed) return;
-            if (MessageBox.Show(this, "此电脑缺少 Microsoft Edge WebView2 运行时。打开微软下载页？", Text,
+            if (Environment.GetEnvironmentVariable("SCREENSHOT_REDACTOR_TEST_PROFILE") == null &&
+                MessageBox.Show(this, "此电脑缺少 Microsoft Edge WebView2 运行时。打开微软下载页？", Text,
                 MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
             {
                 Process.Start(new ProcessStartInfo("https://developer.microsoft.com/microsoft-edge/webview2/#download-section") { UseShellExecute = true });
@@ -108,8 +110,10 @@ internal sealed class RedactorWindow : Form
         }
         catch (Exception error)
         {
+            Console.Error.WriteLine(error);
             if (IsDisposed) return;
-            MessageBox.Show(this, "无法启动截图脱敏助手。\n" + error.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if (Environment.GetEnvironmentVariable("SCREENSHOT_REDACTOR_TEST_PROFILE") == null)
+                MessageBox.Show(this, "无法启动截图脱敏助手。\n" + error.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
             Close();
         }
     }
