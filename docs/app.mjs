@@ -1,6 +1,6 @@
-import './icons.mjs';
-import { clamp, moveBox, outputName, pixelBounds, resizeBox } from './geometry.mjs';
-import { drawFlattened, exportImages, isMosaic, loadFile, loadImage, maskColors, mosaicTile } from './images.mjs';
+import './icons.mjs?v=0.2.1';
+import { clamp, moveBox, outputName, pixelBounds, resizeBox } from './geometry.mjs?v=0.2.1';
+import { createThumbnailUrl, drawFlattened, exportImages, isMosaic, loadFile, loadImage, maskColors, mosaicTile } from './images.mjs?v=0.2.1';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -68,6 +68,8 @@ let toastTimer;
 let dragDepth = 0;
 let previewEntry = null;
 let previewBoxes = null;
+let hasUnexportedChanges = false;
+let captureHistoryEnabled = false;
 
 const active = () => entries[index];
 const setDisabled = (id, disabled) => { $(id).disabled = disabled; };
@@ -77,9 +79,13 @@ const sameBox = (first, second) => (first.style ?? 'black') === (second.style ??
   (!isMosaic(first.style) || (first.mosaicTint ?? null) === (second.mosaicTint ?? null)) &&
   ['x', 'y', 'width', 'height'].every((key) => first[key] === second[key]);
 const hasBox = (entry, box) => entry.boxes.some((existing) => sameBox(existing, box));
+const tileKey = (box) => isMosaic(box.style)
+  ? `${box.style}:${box.mosaicTint ?? ''}:${box.x},${box.y}:${box.width}x${box.height}` : '';
+const countTexturedMasks = (list) => list.reduce((total, entry) =>
+  total + entry.boxes.filter((box) => isMosaic(box.style)).length, 0);
 
-function makeEntry(name, { image, url }, demo = false, boxes = []) {
-  return { name, image, url, demo, width: image.naturalWidth, height: image.naturalHeight, boxes, history: [], checked: false };
+function makeEntry(name, { image, url, thumbUrl }, demo = false, boxes = []) {
+  return { name, image, url, thumbUrl: thumbUrl || url, demo, width: image.naturalWidth, height: image.naturalHeight, boxes, history: [], checked: false };
 }
 
 function announce(message) {
@@ -108,7 +114,7 @@ function createScreenshotRow(entry) {
   const thumb = document.createElement('img');
   thumb.className = 'thumb';
   thumb.alt = '';
-  thumb.src = entry.url;
+  thumb.src = entry.thumbUrl;
   thumb.decoding = 'async';
   const label = document.createElement('span');
   label.className = 'file-label';
@@ -212,10 +218,11 @@ function updateMaskNode(entry, box, draft) {
     maskNodes.set(box.id, mask);
   }
   const { node } = mask;
-  if (mask.box !== box && (!mask.box || !sameBox(mask.box, box))) {
-    positionMask(node, box, entry);
-    mask.texture = paintMaskSurface(node, entry, box, mask.texture);
-  }
+  const key = tileKey(box);
+  const needsPosition = mask.box !== box && (!mask.box || !sameBox(mask.box, box));
+  const needsPaint = needsPosition || (isMosaic(box.style) && gesture?.mode !== 'move' && mask.texture?.dataset.tileKey !== key);
+  if (needsPosition) positionMask(node, box, entry);
+  if (needsPaint) mask.texture = paintMaskSurface(node, entry, box, mask.texture);
   mask.box = box;
   node.classList.toggle('draft', draft);
   const withHandles = box.id === selected && !draft;
@@ -241,7 +248,10 @@ function paintMaskSurface(node, entry, box, previous) {
   node.classList.toggle('soft', box.style === 'soft');
   node.style.backgroundColor = textured ? '' : maskColors[box.style] ?? maskColors.black;
   if (textured) {
+    const key = tileKey(box);
+    if (previous && (gesture?.mode === 'move' || previous.dataset.tileKey === key)) return previous;
     const tile = mosaicTile(entry.image, box);
+    tile.dataset.tileKey = key;
     if (previous) previous.replaceWith(tile);
     else node.prepend(tile);
     return tile;
@@ -255,6 +265,16 @@ function positionMask(node, box, entry) {
   node.style.top = `${box.y / entry.height * 100}%`;
   node.style.width = `${box.width / entry.width * 100}%`;
   node.style.height = `${box.height / entry.height * 100}%`;
+}
+
+function renderTextureWarning() {
+  const count = countTexturedMasks(entries);
+  const banner = $('texture-warning');
+  banner.hidden = !entries.length || count === 0;
+  if (!banner.hidden) {
+    $('texture-warning-text').textContent = `有 ${count} 处使用纹理遮挡`;
+    setDisabled('convert-solid-black', busy || importsPending > 0 || Boolean(gesture));
+  }
 }
 
 function renderEditor() {
@@ -308,6 +328,7 @@ function renderEditor() {
   setDisabled('review', !entry);
   setDisabled('previous', !entry || index === 0);
   setDisabled('next', !entry || index >= entries.length - 1);
+  renderTextureWarning();
   renderReviewControls();
   renderReviewStart();
   setDisabled('export-one', !entry || busy || importsPending > 0);
@@ -377,6 +398,7 @@ function moveScreenshot(direction) {
   entries[index] = entries[next];
   entries[next] = entry;
   index = next;
+  hasUnexportedChanges = true;
   renderRows();
   renderEditor();
   revealScreenshot(index);
@@ -387,6 +409,7 @@ function removeScreenshot() {
   const entry = active();
   if (!entry || busy || importsPending || gesture) return;
   entries.splice(index, 1);
+  if (entry.thumbUrl && entry.thumbUrl !== entry.url) URL.revokeObjectURL(entry.thumbUrl);
   if (!entry.demo) URL.revokeObjectURL(entry.url);
   if (previewEntry === entry) {
     previewEntry = previewBoxes = null;
@@ -397,9 +420,11 @@ function removeScreenshot() {
     if (!lastBatch.length) lastBatch = null;
   }
   if (entries.length) {
+    hasUnexportedChanges = true;
     goTo(Math.min(index, entries.length - 1));
     fileList.children[index].focus({ preventScroll: true });
   } else {
+    hasUnexportedChanges = false;
     index = 0;
     view = 'edit';
     tool = 'draw';
@@ -417,6 +442,7 @@ function replaceBoxes(entry, boxes) {
   if (entry.history.length > 100) entry.history.shift();
   entry.boxes = boxes;
   entry.checked = false;
+  hasUnexportedChanges = true;
 }
 
 function editBoxes(boxes) {
@@ -442,6 +468,7 @@ function renderReviewControls() {
 
 function confirmAndContinue() {
   active().checked = true;
+  hasUnexportedChanges = true;
   const next = entries.findIndex((target, position) => position > index && !target.checked);
   const position = next >= 0 ? next : entries.findIndex((target) => !target.checked);
   if (position >= 0) {
@@ -488,7 +515,7 @@ function renderBatchMasks(entry) {
   const list = $('batch-masks');
   const map = $('batch-mask-map');
   const thumb = document.createElement('img');
-  thumb.src = entry.url;
+  thumb.src = entry.thumbUrl;
   thumb.alt = '';
   map.style.width = `min(100%, ${entry.width / entry.height * 138}px)`;
   map.replaceChildren(thumb);
@@ -540,7 +567,7 @@ function openBatchPicker() {
     const thumb = document.createElement('img');
     thumb.className = 'thumb';
     thumb.alt = '';
-    thumb.src = target.url;
+    thumb.src = target.thumbUrl;
     const details = document.createElement('span');
     details.className = 'file-label';
     const name = document.createElement('strong');
@@ -592,6 +619,7 @@ function undoBatch() {
     if (target === active() && ids.has(selected)) selected = null;
     changed++;
   }
+  if (changed) hasUnexportedChanges = true;
   lastBatch = null;
   renderRows();
   renderEditor();
@@ -603,6 +631,7 @@ function undo() {
   if (!entry?.history.length || view !== 'edit' || gesture) return;
   entry.boxes = entry.history.pop();
   entry.checked = false;
+  hasUnexportedChanges = true;
   selected = null;
   renderRows();
   renderEditor();
@@ -794,7 +823,9 @@ function addFiles(files) {
       importProgress = `正在读取第 ${position + 1} / ${files.length} 张`;
       renderOperationProgress();
       try {
-        imported.push(makeEntry(file.name, await loadFile(file)));
+        const loaded = await loadFile(file);
+        const thumbUrl = await createThumbnailUrl(loaded.image).catch(() => loaded.url);
+        imported.push(makeEntry(file.name, { ...loaded, thumbUrl }));
       } catch (error) {
         failures.push({ name: file.name, reason: error instanceof Error ? error.message : '无法读取图片' });
       }
@@ -803,11 +834,15 @@ function addFiles(files) {
       const modal = openDialog();
       if (modal) await new Promise((resolve) => modal.addEventListener('close', resolve, { once: true }));
       if (entries.every((entry) => entry.demo)) {
+        for (const demo of entries) {
+          if (demo.thumbUrl && demo.thumbUrl !== demo.url) URL.revokeObjectURL(demo.thumbUrl);
+        }
         entries = [];
         lastBatch = null;
       }
       const firstNew = entries.length;
       entries.push(...imported);
+      hasUnexportedChanges = true;
       tool = 'draw';
       goTo(firstNew, 'edit');
     }
@@ -841,7 +876,9 @@ function addSamples() {
     if (entries.length) return;
     const demo = await Promise.all(samples.map(async ([filename, label, boxes]) => {
       const url = new URL(`./samples/${filename}`, import.meta.url).href;
-      return makeEntry(label, { url, image: await loadImage(url) }, true, boxes);
+      const image = await loadImage(url);
+      const thumbUrl = await createThumbnailUrl(image).catch(() => url);
+      return makeEntry(label, { url, thumbUrl, image }, true, boxes);
     }));
     const position = entries.length;
     entries.push(...demo);
@@ -851,15 +888,16 @@ function addSamples() {
   });
 }
 
-function requestExport(batch) {
-  if (busy || importsPending || !active()) return;
-  const targets = batch ? [...entries] : [active()];
-  const filename = batch ? 'screenshots-redacted.zip' : outputName(index, entries.length);
-  const missing = targets.filter((entry) => !entry.checked);
-  if (!missing.length) {
-    runExport({ targets, batch, filename });
-    return;
+function renderExportDialogWarning(targets) {
+  const count = countTexturedMasks(targets);
+  const warning = $('export-texture-warning');
+  warning.hidden = count === 0;
+  if (!warning.hidden) {
+    $('export-texture-warning-text').textContent = `有 ${count} 处使用纹理遮挡`;
   }
+}
+
+function renderExportDialogMissing(missing) {
   $('dialog-note').textContent = `${missing.length} 张截图还没有标记为已检查。`;
   $('unchecked-list').replaceChildren(...missing.map((entry) => {
     const row = document.createElement('li');
@@ -875,6 +913,38 @@ function requestExport(batch) {
     row.append(button);
     return row;
   }));
+}
+
+function convertTexturedMasksToBlack(targetEntries) {
+  let converted = 0;
+  for (const entry of targetEntries) {
+    if (!entry.boxes.some((box) => isMosaic(box.style))) continue;
+    replaceBoxes(entry, entry.boxes.map((box) => {
+      if (!isMosaic(box.style)) return box;
+      converted++;
+      return { ...box, style: 'black', mosaicTint: undefined, mosaicBase: undefined };
+    }));
+  }
+  if (isMosaic(maskStyle)) maskStyle = 'black';
+  if (converted) {
+    renderRows();
+    renderEditor();
+    announce(`已将 ${converted} 处纹理遮挡改为纯黑`);
+  }
+  return converted;
+}
+
+function requestExport(batch) {
+  if (busy || importsPending || !active()) return;
+  const targets = batch ? [...entries] : [active()];
+  const filename = batch ? 'screenshots-redacted.zip' : outputName(index, entries.length);
+  const missing = targets.filter((entry) => !entry.checked);
+  if (!missing.length) {
+    runExport({ targets, batch, filename });
+    return;
+  }
+  renderExportDialogMissing(missing);
+  renderExportDialogWarning(targets);
   pendingExport = { targets, batch, filename, firstUnchecked: missing[0] };
   dialog.showModal();
   $('start-review').focus();
@@ -901,9 +971,10 @@ async function runExport({ targets, batch, filename }) {
       exportProgress = `正在导出第 ${current} / ${total} 张`;
       renderOperationProgress();
     });
+    hasUnexportedChanges = false;
     announce(batch ? `已导出 ${targets.length} 张截图` : `已导出 ${filename}`);
-  } catch {
-    announce('导出失败。请重试，或先单独导出较大的截图。');
+  } catch (error) {
+    if (error?.name !== 'AbortError') announce('导出失败。请重试，或先单独导出较大的截图。');
   } finally {
     busy = false;
     exportProgress = '';
@@ -985,9 +1056,9 @@ function applyMaskStyle(style, { mosaicTint, mosaicBase } = paletteColors(select
   if (textured) mosaicColors = { mosaicTint, mosaicBase };
   const old = selectedMask();
   const next = { ...old, style, mosaicTint: textured ? mosaicTint : undefined, mosaicBase: textured ? mosaicBase : undefined };
-  if (old && !sameBox(old, next)) editBoxes(entry.boxes.map((box) => box === old ? next : box));
-  else {
-    if (old && old.mosaicBase !== next.mosaicBase) entry.boxes = entry.boxes.map((box) => box === old ? next : box);
+  if (old && (!sameBox(old, next) || (old.mosaicBase ?? null) !== (next.mosaicBase ?? null))) {
+    editBoxes(entry.boxes.map((box) => box === old ? next : box));
+  } else {
     renderStyleWheel(false);
   }
   if (textured) announce('纹理可能保留可辨认轮廓，敏感信息建议用纯色遮挡。');
@@ -1160,6 +1231,9 @@ if (desktop) {
   $('capture-tools').hidden = false;
   $('capture-screen').onclick = () => desktop.postMessage('capture');
   $('open-history').onclick = openCaptureHistory;
+  $('toggle-capture-history').onchange = (event) => {
+    desktop.postMessage(`set-history-enabled|${event.target.checked ? '1' : '0'}`);
+  };
   historyDialog.addEventListener('close', () => { if (!historyDialog.open) historyLoad++; });
   $('close-history').onclick = () => historyDialog.close();
   $('import-captures').onclick = importCaptures;
@@ -1178,6 +1252,11 @@ if (desktop) {
   desktop.addEventListener('message', ({ data }) => {
     if (typeof data !== 'string' || data.startsWith('updates|')) return;
     if (data.startsWith('hotkeys|') || data.startsWith('saved-hotkeys|')) receiveHotkeys(data);
+    else if (data.startsWith('history-enabled|')) {
+      captureHistoryEnabled = data === 'history-enabled|1';
+      $('toggle-capture-history').checked = captureHistoryEnabled;
+      if (historyDialog.open) loadCaptureHistory();
+    }
     else if (data.startsWith('recorded-hotkey|')) {
       if (hotkeysDialog.open && recordingHotkey >= 0) {
         proposedHotkeys[recordingHotkey] = data.slice('recorded-hotkey|'.length);
@@ -1203,6 +1282,7 @@ if (desktop) {
     }
   });
   desktop.postMessage('get-hotkeys');
+  desktop.postMessage('get-history-enabled');
 }
 
 let historyLoad = 0;
@@ -1223,10 +1303,19 @@ async function loadCaptureHistory() {
   try {
     const response = await fetch('./capture-history');
     if (!response.ok) throw new Error('无法读取截屏历史');
-    const names = await response.json();
+    const payload = await response.json();
+    const names = Array.isArray(payload) ? payload : (payload.names ?? []);
+    if (!Array.isArray(payload) && typeof payload.enabled === 'boolean') {
+      captureHistoryEnabled = payload.enabled;
+      $('toggle-capture-history').checked = captureHistoryEnabled;
+    }
     if (revision !== historyLoad || !historyDialog.open) return;
     setDisabled('clear-captures', !names.length);
-    $('capture-status').textContent = names.length ? '' : `还没有截图。按 ${hotkeyText(savedHotkeys[0])} 开始截屏。`;
+    $('capture-status').textContent = names.length
+      ? ''
+      : captureHistoryEnabled
+        ? `还没有截图。按 ${hotkeyText(savedHotkeys[0])} 开始截屏。`
+        : '本机截图历史已关闭（默认仅复制到剪贴板）。开启上方开关后自动保留 24 小时内的截图。';
     list.replaceChildren(...names.map((name) => {
       const row = document.createElement('label');
       const check = document.createElement('input');
@@ -1284,8 +1373,24 @@ $('fit').onclick = () => changeZoom('fit');
 $('actual-size').onclick = () => changeZoom('original');
 $('review').onchange = (event) => {
   active().checked = event.target.checked;
+  hasUnexportedChanges = true;
   renderRows();
   renderReviewControls();
+};
+$('convert-solid-black').onclick = () => convertTexturedMasksToBlack(entries);
+$('export-convert-solid-black').onclick = () => {
+  if (!pendingExport) return;
+  convertTexturedMasksToBlack(pendingExport.targets);
+  const missing = pendingExport.targets.filter((entry) => !entry.checked);
+  if (!missing.length) {
+    const job = pendingExport;
+    dialog.close();
+    runExport(job);
+    return;
+  }
+  pendingExport.firstUnchecked = missing[0];
+  renderExportDialogMissing(missing);
+  renderExportDialogWarning(pendingExport.targets);
 };
 $('move-earlier').onclick = () => moveScreenshot(-1);
 $('move-later').onclick = () => moveScreenshot(1);
@@ -1382,6 +1487,12 @@ document.addEventListener('drop', (event) => {
   else announce('未收到图片文件，请从资源管理器拖入 PNG 或 JPG。');
 });
 
+window.addEventListener('beforeunload', (event) => {
+  if (!hasUnexportedChanges || !entries.length) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
+
 window.addEventListener('blur', () => {
   stopSpacePan();
   clearDropFeedback();
@@ -1436,7 +1547,7 @@ document.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === 'z') {
     event.preventDefault();
     undo();
-  } else if (plainKey && !event.target.closest('select')) {
+  } else if (plainKey && !event.target.closest('input, textarea, select, [contenteditable]')) {
     if (key === 'delete' || key === 'backspace') {
       if (selected) event.preventDefault();
       deleteBox();

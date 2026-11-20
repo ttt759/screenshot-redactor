@@ -13,14 +13,72 @@ using System.Windows.Forms;
 internal sealed class CaptureHistory
 {
     internal const int Capacity = 30;
+    internal static readonly TimeSpan Retention = TimeSpan.FromHours(24);
     private static readonly Regex FileName = new Regex(@"\A[0-9]{8}-[0-9]{6}-[0-9]{3}-[a-f0-9]{8}\.png\z", RegexOptions.CultureInvariant);
     private readonly string folder;
+    private readonly string settingsPath;
 
-    internal CaptureHistory(string folder) { this.folder = folder; }
+    internal bool Enabled { get; private set; }
+
+    internal CaptureHistory(string folder, string settingsPath = null)
+    {
+        this.folder = folder;
+        this.settingsPath = settingsPath ?? Path.Combine(Path.GetDirectoryName(folder), "history.txt");
+        Enabled = LoadEnabled();
+        if (Enabled) PruneExpired();
+    }
+
+    private bool LoadEnabled()
+    {
+        try
+        {
+            if (!File.Exists(settingsPath)) return false;
+            var value = File.ReadAllText(settingsPath).Trim();
+            return string.Equals(value, "1", StringComparison.Ordinal) ||
+                   string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
+    internal void SetEnabled(bool enabled)
+    {
+        var directory = Path.GetDirectoryName(settingsPath);
+        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+        var temporary = settingsPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(temporary, enabled ? "1" : "0");
+            if (File.Exists(settingsPath)) File.Replace(temporary, settingsPath, null);
+            else File.Move(temporary, settingsPath);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        Enabled = enabled;
+        if (enabled) PruneExpired();
+    }
+
+    internal int PruneExpired()
+    {
+        if (!Directory.Exists(folder)) return 0;
+        var cutoff = DateTime.UtcNow - Retention;
+        var removed = 0;
+        foreach (var file in new DirectoryInfo(folder).GetFiles("*.png"))
+        {
+            if (!IsCapture(file.Name)) continue;
+            if (file.LastWriteTimeUtc < cutoff)
+            {
+                try { file.Delete(); removed++; }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+        return removed;
+    }
 
     internal string[] List()
     {
         if (!Directory.Exists(folder)) return new string[0];
+        if (Enabled) PruneExpired();
         return new DirectoryInfo(folder).GetFiles("*.png").Where(file => IsCapture(file.Name))
             .OrderByDescending(file => file.CreationTimeUtc).ThenByDescending(file => file.Name, StringComparer.Ordinal)
             .Select(file => file.Name).ToArray();
@@ -42,6 +100,8 @@ internal sealed class CaptureHistory
 
     internal void Save(Bitmap bitmap)
     {
+        if (!Enabled) return;
+        PruneExpired();
         Directory.CreateDirectory(folder);
         var id = Guid.NewGuid().ToString("N").Substring(0, 8);
         var name = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture) + "-" + id + ".png";

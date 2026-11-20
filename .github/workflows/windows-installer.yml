@@ -14,11 +14,11 @@ jobs:
       RELEASE_TAG: ${{ github.event.release.tag_name }}
       RELEASE_ID: ${{ github.event.release.id }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
           cache: npm
@@ -37,7 +37,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           "name=$name" >> $env:GITHUB_OUTPUT
           "portable=$portable" >> $env:GITHUB_OUTPUT
-          $present = ($existing -contains $name -and $existing -contains $portable).ToString().ToLowerInvariant()
+          $present = ($existing -contains $name -and $existing -contains "$name.sig" -and $existing -contains $portable -and $existing -contains "$portable.sig").ToString().ToLowerInvariant()
           "present=$present" >> $env:GITHUB_OUTPUT
       - if: steps.asset.outputs.present == 'false'
         run: npm ci
@@ -68,6 +68,57 @@ jobs:
           node --test tests/installer.test.mjs
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run test:desktop
+      - name: Sign Windows packages with RSA-2048
+        if: steps.asset.outputs.present == 'false'
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          INSTALLER_NAME: ${{ steps.asset.outputs.name }}
+          PORTABLE_NAME: ${{ steps.asset.outputs.portable }}
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_KEY)) {
+            throw 'UPDATE_SIGNING_KEY secret is required to generate RSA-2048 .sig files.'
+          }
+          $rsa = [System.Security.Cryptography.RSA]::Create()
+          try {
+            $key = $env:UPDATE_SIGNING_KEY.Trim()
+            if ($key.StartsWith('<')) {
+              $rsa.FromXmlString($key)
+            } else {
+              $rsa.ImportFromPem($key)
+            }
+            if ($rsa.KeySize -ne 2048) { throw "Expected RSA-2048 signing key, got $($rsa.KeySize)-bit." }
+            $updateReleaseSource = Get-Content -Raw 'desktop/UpdateRelease.cs'
+            if ($updateReleaseSource -notmatch 'PublicKeyXml\s*=\s*"([^"]+)"') {
+              throw 'Could not locate UpdateRelease.PublicKeyXml in desktop/UpdateRelease.cs'
+            }
+            $verifier = [System.Security.Cryptography.RSA]::Create()
+            $verifier.FromXmlString($Matches[1].Replace('\"', '"'))
+            try {
+              foreach ($name in @($env:INSTALLER_NAME, $env:PORTABLE_NAME)) {
+                $path = "release/lightweight/$name"
+                $stream = [System.IO.File]::OpenRead($path)
+                try {
+                  $signature = $rsa.SignData($stream, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+                } finally {
+                  $stream.Dispose()
+                }
+                $verifyStream = [System.IO.File]::OpenRead($path)
+                try {
+                  if (-not $verifier.VerifyData($verifyStream, $signature, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)) {
+                    throw "Generated signature for $name does not match UpdateRelease.PublicKeyXml"
+                  }
+                } finally {
+                  $verifyStream.Dispose()
+                }
+                [System.IO.File]::WriteAllText("$path.sig", [Convert]::ToBase64String($signature), [System.Text.Encoding]::ASCII)
+              }
+            } finally {
+              $verifier.Dispose()
+            }
+          } finally {
+            $rsa.Dispose()
+          }
       - name: Attach Windows downloads
         if: steps.asset.outputs.present == 'false'
         env:
@@ -80,7 +131,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $existing = gh api --paginate "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets" --jq '.[] | select(.state == "uploaded" and .size > 0) | .name'
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          foreach ($name in @($env:INSTALLER_NAME, $env:PORTABLE_NAME)) {
+          foreach ($name in @($env:INSTALLER_NAME, "$($env:INSTALLER_NAME).sig", $env:PORTABLE_NAME, "$($env:PORTABLE_NAME).sig")) {
             if ($existing -contains $name) { continue }
             if ($incomplete -contains $name) {
               gh release delete-asset $env:RELEASE_TAG $name --yes

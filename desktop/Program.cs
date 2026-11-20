@@ -36,7 +36,8 @@ internal sealed class RedactorWindow : Form
     private static readonly string DataFolder = Path.Combine(
         Environment.GetEnvironmentVariable("SCREENSHOT_REDACTOR_TEST_PROFILE") ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "ScreenshotRedactor");
-    private readonly CaptureHistory captureHistory = new CaptureHistory(Path.Combine(DataFolder, "Captures"));
+    private readonly CaptureHistory captureHistory = new CaptureHistory(
+        Path.Combine(DataFolder, "Captures"), Path.Combine(DataFolder, "history.txt"));
     private readonly CaptureHotkeys hotkeys = new CaptureHotkeys(Path.Combine(DataFolder, "hotkeys.txt"));
     private CoreWebView2Environment environment;
     private bool captureInProgress;
@@ -84,6 +85,7 @@ internal sealed class RedactorWindow : Form
             browser.NavigationCompleted += (s, e) => {
                 if (!e.IsSuccess) return;
                 Notify(hotkeys.Settings);
+                Notify("history-enabled|" + (captureHistory.Enabled ? "1" : "0"));
                 if (!registered) Notify("有快捷键被占用，可在快捷键设置中更换。");
             };
             browser.NewWindowRequested += (s, e) => { e.Handled = true; };
@@ -120,6 +122,17 @@ internal sealed class RedactorWindow : Form
         catch (ArgumentException) { return; }
         if (command == "capture") BeginRegionCapture();
         else if (command == "get-hotkeys") Notify(hotkeys.Settings);
+        else if (command == "get-history-enabled") Notify("history-enabled|" + (captureHistory.Enabled ? "1" : "0"));
+        else if (command == "set-history-enabled|1" || command == "set-history-enabled|0")
+        {
+            try
+            {
+                captureHistory.SetEnabled(command.EndsWith("|1", StringComparison.Ordinal));
+                Notify("history-enabled|" + (captureHistory.Enabled ? "1" : "0"));
+            }
+            catch (IOException) { Notify("无法保存截图历史设置，请重试。"); }
+            catch (UnauthorizedAccessException) { Notify("无法保存截图历史设置，请检查文件权限。"); }
+        }
         else if (command == "configure-hotkeys") configuringHotkeys = true;
         else if (command == "finish-hotkeys") configuringHotkeys = false;
         else if (command.StartsWith("save-hotkeys|", StringComparison.Ordinal))
@@ -250,7 +263,8 @@ internal sealed class RedactorWindow : Form
             {
                 // Names contain only digits, ASCII separators and hex, so they are safe JSON strings.
                 var names = captureHistory.List().Take(CaptureHistory.Capacity).Select(name => "\"" + name + "\"");
-                var json = "[" + string.Join(",", names) + "]";
+                var enabled = captureHistory.Enabled ? "true" : "false";
+                var json = "{\"enabled\":" + enabled + ",\"names\":[" + string.Join(",", names) + "]}";
                 args.Response = environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(json)), 200,
                     "OK", "Content-Type: application/json; charset=utf-8\r\nCache-Control: no-store");
                 return;

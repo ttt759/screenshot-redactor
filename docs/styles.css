@@ -161,7 +161,9 @@ progress::-moz-progress-bar { background: var(--accent); }
 .import-errors li { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 3px 0; overflow-wrap: anywhere; }
 .import-errors li span { color: var(--muted); }
 
-.editor-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 15px; min-height: 57px; border-top: 1px solid var(--line); }
+.editor-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 15px; min-height: 57px; border-top: 1px solid var(--line); }
+.texture-warning { flex: 1 0 100%; order: -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; min-width: 0; max-width: 100%; padding: 6px 10px; border: 1px solid #efd5df; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; }
+.dialog-texture-warning { margin: 0 0 12px; }
 .review-actions, .review { display: flex; align-items: center; gap: 12px; }
 .image-navigation { display: flex; align-items: center; gap: 4px; }
 .image-navigation .icon { width: 14px; }
@@ -197,6 +199,8 @@ dialog li { padding: 5px 0; overflow-wrap: anywhere; font-size: 13px; }
 #restore-mosaic-base { margin-inline-start: auto; padding-inline: 6px; }
 #mosaic-color { width: 40px; height: 32px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; }
 #history-dialog { width: min(640px, calc(100vw - 32px)); }
+.history-toggle { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fbf9fc; font-size: 12px; font-weight: 600; cursor: pointer; }
+.history-toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .hotkey-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px; }
 .hotkey-row button { min-width: 128px; }
 .hotkey-row button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }

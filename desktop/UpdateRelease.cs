@@ -10,18 +10,24 @@ internal sealed class UpdateRelease
 {
     internal const string Repository = "ttt759/screenshot-redactor";
     internal const long Limit = 30000000;
+    internal const long SignatureLimit = 4096;
+    // Replace with the release signing public key matching GitHub secret UPDATE_SIGNING_KEY.
+    internal const string PublicKeyXml = "<RSAKeyValue><Modulus>tOlNvWKEttz4LF8KRT8lP6vdSi9pcYQHA7z26SAnNMXJXVxqn/U4F5rFMe4qW3bNwQlP/aBjMgz7qhYPyBpjqXwi+PypdVUs9z5Svde7Hs6RphzFaKc56uxTFiaYKfLaiFmGxh/AbAkSaNohjP4j44xf30yAME9SSdLS8ZiWf/hJj4f9ysBiVQw+gvcABi3KBniioBg+FwYF58aaDgBKQe7BznABfDTsN4qobLeg8Q4OSxuTByMeaTaNjCBrEigwk8rh4hHIn6d/8y/u4VcxREOi+7X8ZPsRZoaI0PeAy2KUbvDlyjLKv4IR0bY/BBQG77xDa5l1ZEBxUEcfVUQiCw==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
     internal readonly Version Version;
-    internal readonly string Name, Digest;
-    internal readonly Uri Url;
-    internal readonly long Size;
+    internal readonly string Name, Digest, SignatureName;
+    internal readonly Uri Url, SignatureUrl;
+    internal readonly long Size, SignatureSize;
 
-    private UpdateRelease(Version version, string name, string digest, Uri url, long size)
+    private UpdateRelease(Version version, string name, string digest, Uri url, long size, string signatureName, Uri signatureUrl, long signatureSize)
     {
         Version = version;
         Name = name;
         Digest = digest;
         Url = url;
         Size = size;
+        SignatureName = signatureName;
+        SignatureUrl = signatureUrl;
+        SignatureSize = signatureSize;
     }
 
     internal static UpdateRelease Parse(string json, Version current, Version currentBuild, bool portable)
@@ -43,13 +49,25 @@ internal sealed class UpdateRelease
         var name = "screenshot-redactor-" + (portable ? "portable-" : "setup-") + version.ToString(3) +
             "-windows-x64." + (portable ? "zip" : "exe");
         var url = "https://github.com/" + Repository + "/releases/download/" + tag + "/" + name;
-        var matching = (release.assets ?? new Asset[0]).Where(asset => asset != null && asset.name == name).ToArray();
+        var assets = release.assets ?? new Asset[0];
+        var matching = assets.Where(asset => asset != null && asset.name == name).ToArray();
         if (matching.Length != 1) throw new InvalidDataException("Missing or ambiguous update package.");
         var file = matching[0];
         if (file.state != "uploaded" || file.size <= 0 || file.size > Limit || file.browser_download_url != url ||
             !Regex.IsMatch(file.digest ?? "", @"\Asha256:[0-9a-fA-F]{64}\z"))
             throw new InvalidDataException("Invalid update package metadata.");
-        return new UpdateRelease(version, name, file.digest.Substring(7), new Uri(url), file.size);
+
+        var signatureName = name + ".sig";
+        var signatureUrl = url + ".sig";
+        var matchingSig = assets.Where(asset => asset != null && asset.name == signatureName).ToArray();
+        if (matchingSig.Length != 1) throw new InvalidDataException("Missing or ambiguous update signature.");
+        var signatureFile = matchingSig[0];
+        if (signatureFile.state != "uploaded" || signatureFile.size <= 0 || signatureFile.size > SignatureLimit ||
+            signatureFile.browser_download_url != signatureUrl)
+            throw new InvalidDataException("Invalid update signature metadata.");
+
+        return new UpdateRelease(version, name, file.digest.Substring(7), new Uri(url), file.size,
+            signatureName, new Uri(signatureUrl), signatureFile.size);
     }
 
     public sealed class Release
@@ -73,12 +91,38 @@ internal sealed class UpdateRelease
 
 internal static class UpdatePayload
 {
-    internal static void Verify(Stream file, UpdateRelease release)
+    internal static void Verify(Stream file, UpdateRelease release, string signature, string publicKeyXml = UpdateRelease.PublicKeyXml)
     {
         if (file.Length != release.Size) throw new InvalidDataException("Incomplete update package.");
+        file.Position = 0;
         if (!string.Equals(Hash(file), release.Digest, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Update checksum mismatch.");
         file.Position = 0;
+        VerifySignature(file, signature, publicKeyXml);
+        file.Position = 0;
+    }
+
+    internal static void VerifySignature(Stream file, string signature, string publicKeyXml = UpdateRelease.PublicKeyXml)
+    {
+        if (string.IsNullOrWhiteSpace(signature)) throw new InvalidDataException("Missing update signature.");
+        byte[] signatureBytes;
+        try { signatureBytes = Convert.FromBase64String(signature.Trim()); }
+        catch (FormatException) { throw new InvalidDataException("Invalid update signature format."); }
+        if (signatureBytes.Length != 256) throw new InvalidDataException("Invalid update signature length.");
+
+        using (var rsa = new RSACryptoServiceProvider())
+        {
+            rsa.PersistKeyInCsp = false;
+            try { rsa.FromXmlString(publicKeyXml); }
+            catch (Exception error) { throw new InvalidDataException("Invalid update signing key.", error); }
+            if (rsa.KeySize != 2048) throw new InvalidDataException("Invalid update signing key size.");
+            using (var sha = SHA256.Create())
+            {
+                var hash = sha.ComputeHash(file);
+                if (!rsa.VerifyHash(hash, CryptoConfig.MapNameToOID("SHA256"), signatureBytes))
+                    throw new InvalidDataException("Update signature mismatch.");
+            }
+        }
     }
 
     internal static string Hash(Stream file)

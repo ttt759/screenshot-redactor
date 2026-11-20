@@ -923,3 +923,248 @@ test('E confirms one preview per keypress and skips checked images', async ({ pa
   await page.keyboard.press('e');
   await expect(rows.nth(3)).toHaveAttribute('aria-current', 'true');
 });
+
+test('mosaicTile uses only 1x1 averageBoxColor with deterministic PRNG to prevent Depix recovery', async ({ page }) => {
+  await page.goto('/');
+  const equal = await page.evaluate(async () => {
+    const { mosaicTile } = await import('/images.mjs?v=0.2.1');
+    const makeCanvasImage = (draw) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 160;
+      canvas.height = 80;
+      const ctx = canvas.getContext('2d');
+      draw(ctx);
+      return canvas;
+    };
+    const split = makeCanvasImage((ctx) => {
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, 80, 80);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(80, 0, 80, 80);
+    });
+    const checker = makeCanvasImage((ctx) => {
+      for (let y = 0; y < 80; y++) {
+        for (let x = 0; x < 160; x++) {
+          ctx.fillStyle = (x + y) % 2 === 0 ? '#000000' : '#ffffff';
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    });
+    const results = {};
+    for (const style of ['mosaic', 'soft', 'dots', 'brush']) {
+      const box = { x: 0, y: 0, width: 160, height: 80, style };
+      const first = mosaicTile(split, box);
+      const second = mosaicTile(checker, box);
+      const a = first.getContext('2d').getImageData(0, 0, first.width, first.height).data;
+      const b = second.getContext('2d').getImageData(0, 0, second.width, second.height).data;
+      results[style] = a.length === b.length && a.every((value, idx) => value === b[idx]);
+    }
+    return results;
+  });
+  expect(equal).toEqual({ mosaic: true, soft: true, dots: true, brush: true });
+});
+
+test('warns about textured masks in footer and export dialog and converts them to solid black', async ({ page }) => {
+  await openSamples(page);
+  const masks = page.locator('#masks .mask');
+  await masks.first().click();
+  await page.locator('#mask-style-current').press('ArrowUp');
+  await expect(masks.first().locator('canvas')).toHaveCount(1);
+
+  const footerWarning = page.locator('#texture-warning');
+  await expect(footerWarning).toBeVisible();
+  await expect(footerWarning).toContainText('有 1 处使用纹理遮挡');
+
+  await page.getByRole('button', { name: '导出全部 ZIP' }).click();
+  const exportDialog = page.getByRole('dialog');
+  const dialogWarning = exportDialog.locator('#export-texture-warning');
+  await expect(dialogWarning).toBeVisible();
+  await expect(dialogWarning).toContainText('有 1 处使用纹理遮挡');
+
+  await dialogWarning.getByRole('button', { name: '一键改为纯色（纯黑）' }).click();
+  await expect(dialogWarning).toBeHidden();
+  await expect(footerWarning).toBeHidden();
+  await exportDialog.getByRole('button', { name: '关闭' }).click();
+
+  await expect(masks.first().locator('canvas')).toHaveCount(0);
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(masks.first().locator('canvas')).toHaveCount(1);
+  await expect(footerWarning).toBeVisible();
+
+  await footerWarning.getByRole('button', { name: '一键改为纯色（纯黑）' }).click();
+  await expect(footerWarning).toBeHidden();
+  await expect(masks.first().locator('canvas')).toHaveCount(0);
+});
+
+test('tracks hasUnexportedChanges with beforeunload and resets after single or batch export', async ({ page }) => {
+  await page.goto('/');
+  const checkBeforeUnload = () => page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+
+  expect(await checkBeforeUnload()).toBe(false);
+  await page.locator('#file-input').setInputFiles(resolve('docs/samples/account.png'));
+  await expect(page.locator('.file-row')).toHaveCount(1);
+  expect(await checkBeforeUnload()).toBe(true);
+
+  await page.getByRole('checkbox', { name: '标记为已检查' }).check();
+  const singleDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: '导出当前 PNG' }).click();
+  await singleDownload;
+  expect(await checkBeforeUnload()).toBe(false);
+
+  const bounds = await page.locator('#artboard').boundingBox();
+  await drag(page, imagePoint(bounds, 1120, 700, 100, 100), imagePoint(bounds, 1120, 700, 220, 150));
+  expect(await checkBeforeUnload()).toBe(true);
+
+  await page.getByRole('checkbox', { name: '标记为已检查' }).check();
+  const batchDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: '导出全部 ZIP' }).click();
+  await batchDownload;
+  expect(await checkBeforeUnload()).toBe(false);
+});
+
+test('reuses 180px thumbUrl in sidebar, batch mask map, and batch targets', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#file-input').setInputFiles([
+    { name: 'one.png', mimeType: 'image/png', buffer: await readFile(resolve('docs/samples/account.png')) },
+    { name: 'two.png', mimeType: 'image/png', buffer: await readFile(resolve('docs/samples/account-team.png')) },
+  ]);
+  await expect(page.locator('.file-row')).toHaveCount(2);
+
+  const sidebarThumbs = await page.locator('.file-row .thumb').evaluateAll((imgs) =>
+    imgs.map((img) => ({ src: img.src, width: img.naturalWidth, height: img.naturalHeight })));
+  expect(sidebarThumbs[0].src.startsWith('blob:')).toBe(true);
+  expect(Math.max(sidebarThumbs[0].width, sidebarThumbs[0].height)).toBeLessThanOrEqual(180);
+
+  const bounds = await page.locator('#artboard').boundingBox();
+  await drag(page, imagePoint(bounds, 1120, 700, 120, 120), imagePoint(bounds, 1120, 700, 280, 180));
+  await page.getByRole('button', { name: /^批量应用遮挡/ }).click();
+
+  const mapSrc = await page.locator('#batch-mask-map img').getAttribute('src');
+  const targetSrc = await page.locator('#batch-targets .thumb').first().getAttribute('src');
+  expect(mapSrc).toBe(sidebarThumbs[0].src);
+  expect(targetSrc).toBe(sidebarThumbs[1].src);
+});
+
+test('streams ZIP export via showSaveFilePicker when available and preserves dirty state on cancel', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { value: false, configurable: true });
+    window.__streamedExports = [];
+    window.__cancelPicker = false;
+    window.showSaveFilePicker = async (options) => {
+      if (window.__cancelPicker) throw new DOMException('Aborted', 'AbortError');
+      const chunks = [];
+      return {
+        async createWritable() {
+          return {
+            async write(chunk) {
+              const bytes = chunk instanceof Blob ? new Uint8Array(await chunk.arrayBuffer()) : new Uint8Array(chunk);
+              chunks.push(Array.from(bytes));
+            },
+            async close() {
+              window.__streamedExports.push({ name: options.suggestedName, chunks });
+            },
+            async abort() {},
+          };
+        },
+      };
+    };
+  });
+  await page.goto('/');
+  await page.locator('#file-input').setInputFiles([
+    { name: 'a.png', mimeType: 'image/png', buffer: await readFile(resolve('docs/samples/account.png')) },
+    { name: 'b.png', mimeType: 'image/png', buffer: await readFile(resolve('docs/samples/checkout.jpg')) },
+  ]);
+  for (let i = 0; i < 2; i++) {
+    await page.locator('.file-row').nth(i).click();
+    await page.getByRole('checkbox', { name: '标记为已检查' }).check();
+  }
+
+  await page.evaluate(() => { window.__cancelPicker = true; });
+  await page.getByRole('button', { name: '导出全部 ZIP' }).click();
+  await expect(page.locator('#toast')).toBeHidden();
+  expect(await page.evaluate(() => {
+    const ev = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  })).toBe(true);
+
+  await page.evaluate(() => { window.__cancelPicker = false; });
+  await page.getByRole('button', { name: '导出全部 ZIP' }).click();
+  await expect.poll(async () => page.evaluate(() => window.__streamedExports.length)).toBe(1);
+  const exported = await page.evaluate(() => window.__streamedExports[0]);
+  expect(exported.name).toBe('screenshots-redacted.zip');
+  expect(exported.chunks.length).toBeGreaterThan(2);
+  const merged = new Uint8Array(exported.chunks.flat());
+  const zip = unzipSync(merged);
+  expect(Object.keys(zip)).toEqual(['01-redacted.png', '02-redacted.png']);
+});
+
+test('reuses mosaic canvas during drag, updates tileKey after drop/arrow nudge, and records mosaicBase undo', async ({ page }) => {
+  await openSamples(page);
+  const mask = page.locator('#masks .mask').first();
+  await mask.click();
+  await page.locator('#mask-style-current').press('ArrowUp');
+  const canvas = mask.locator('canvas');
+  await expect(canvas).toHaveCount(1);
+  const initialKey = await canvas.getAttribute('data-tile-key');
+  expect(initialKey).toMatch(/^mosaic::446,403:254x28$/);
+
+  // Drag the mosaic mask itself: canvas node stays reused during move, then updates tileKey on pointerup.
+  await page.evaluate(() => {
+    window.__draggedCanvas = document.querySelector('#masks .mask canvas');
+    window.__moveSawSameCanvas = true;
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('#masks .mask canvas') !== window.__draggedCanvas) {
+        window.__moveSawSameCanvas = false;
+      }
+    });
+    observer.observe(document.querySelector('#masks'), { childList: true, subtree: true });
+    window.__stopObserver = () => observer.disconnect();
+  });
+  const bounds = await mask.boundingBox();
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width / 2 + 40, bounds.y + bounds.height / 2 + 20, { steps: 4 });
+  expect(await page.evaluate(() => {
+    window.__stopObserver();
+    return window.__moveSawSameCanvas;
+  })).toBe(true);
+  await page.mouse.up();
+  const droppedKey = await mask.locator('canvas').getAttribute('data-tile-key');
+  expect(droppedKey).not.toBe(initialKey);
+
+  // Arrow keys move 1px and Shift+Arrow moves 10px, updating tileKey.
+  await page.keyboard.press('ArrowRight');
+  const nudged1px = await mask.locator('canvas').getAttribute('data-tile-key');
+  const [, , posBefore, size] = droppedKey.split(':');
+  const [bx, by] = posBefore.split(',').map(Number);
+  expect(nudged1px).toBe(`mosaic::${bx + 1},${by}:${size}`);
+  await page.keyboard.press('Shift+ArrowDown');
+  const nudged10px = await mask.locator('canvas').getAttribute('data-tile-key');
+  expect(nudged10px).toBe(`mosaic::${bx + 1},${by + 10}:${size}`);
+
+  // Changing mosaicBase via palette preset is recorded in undo stack even if mosaicTint is customized back/changed.
+  await page.getByRole('button', { name: /^配色/ }).click();
+  const palette = page.getByRole('dialog', { name: '马赛克配色' });
+  await palette.getByRole('button', { name: '红色', exact: true }).click();
+  await palette.getByRole('button', { name: '应用配色' }).click();
+  await expect(page.getByRole('button', { name: '配色：#d43b35' })).toBeVisible();
+  // Change only mosaicBase (keep custom tint #d43b35 while switching base preset to 蓝色 then restoring tint)
+  // Actually test selecting green preset then changing color back to #d43b35 so ONLY mosaicBase differs!
+  await page.getByRole('button', { name: /^配色/ }).click();
+  await palette.getByRole('button', { name: '绿色', exact: true }).click();
+  await palette.getByLabel('自定义颜色').fill('#d43b35');
+  await palette.getByRole('button', { name: '应用配色' }).click();
+
+  // Undo should restore mosaicBase to red (#d43b35).
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await mask.click();
+  await page.getByRole('button', { name: /^配色/ }).click();
+  await expect(palette.getByRole('button', { name: '红色', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await palette.getByRole('button', { name: '关闭' }).click();
+});
+

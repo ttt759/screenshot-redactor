@@ -7,9 +7,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>截图脱敏助手</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=0.3.22">
-  <script defer src="./vendor/fflate.js"></script>
-  <script type="module" src="./app.mjs?v=0.3.22"></script>
+  <link rel="stylesheet" href="./styles.css?v=0.2.1">
+  <script defer src="./vendor/fflate.js?v=0.2.1"></script>
+  <script type="module" src="./app.mjs?v=0.2.1"></script>
 </head>
 <body>
   <header class="page-header">
@@ -114,6 +114,10 @@
       </section>
 
       <footer id="editor-foot" class="editor-foot" hidden>
+        <div id="texture-warning" class="texture-warning" hidden>
+          <span id="texture-warning-text"></span>
+          <button type="button" id="convert-solid-black" class="button subtle compact">一键改为纯色（纯黑）</button>
+        </div>
         <div class="review-actions">
           <label class="review"><input type="checkbox" id="review" disabled><span>标记为已检查</span></label>
           <button id="confirm-next" class="button review-next compact" data-icon="right" aria-keyshortcuts="E" title="确认并继续 (E)" hidden><span id="confirm-next-label">确认并继续</span><kbd aria-hidden="true">E</kbd></button>
@@ -156,12 +160,17 @@
   <dialog id="export-dialog" aria-labelledby="dialog-title">
     <div class="dialog-heading"><h2 id="dialog-title">还有截图待检查</h2><button id="close-dialog" class="button icon-button" data-icon="close" aria-label="关闭" title="关闭"></button></div>
     <p id="dialog-note"></p>
+    <div id="export-texture-warning" class="texture-warning dialog-texture-warning" hidden>
+      <span id="export-texture-warning-text"></span>
+      <button type="button" id="export-convert-solid-black" class="button subtle compact">一键改为纯色（纯黑）</button>
+    </div>
     <ul id="unchecked-list"></ul>
     <div class="dialog-actions"><button class="button subtle" id="force-export">仍然导出</button><button class="button primary" id="start-review">逐张检查</button></div>
   </dialog>
 
   <dialog id="history-dialog" aria-labelledby="history-title">
     <div class="dialog-heading"><h2 id="history-title">截图剪贴板</h2><button id="close-history" class="button icon-button" data-icon="close" aria-label="关闭"></button></div>
+    <label class="history-toggle"><input type="checkbox" role="switch" id="toggle-capture-history"><span>保存截屏到本机历史（自动保留 24 小时）</span></label>
     <p id="capture-status" role="status"></p>
     <div id="capture-list" class="capture-list"></div>
     <div class="dialog-actions">

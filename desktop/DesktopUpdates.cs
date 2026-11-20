@@ -195,12 +195,19 @@ internal sealed class DesktopUpdates
             using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token))
             {
                 timeout.CancelAfter(TimeSpan.FromMinutes(2));
+                string signatureText;
+                using (var sigResponse = await Get(offered.SignatureUrl, true, timeout.Token))
+                using (var sigData = new MemoryStream())
+                {
+                    await Copy(sigResponse, sigData, offered.SignatureSize, timeout.Token);
+                    signatureText = Encoding.UTF8.GetString(sigData.ToArray());
+                }
                 using (var response = await Get(offered.Url, true, timeout.Token))
                 using (var target = new FileStream(downloaded, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 65536, true))
                 {
                     await Copy(response, target, offered.Size, timeout.Token);
                     target.Position = 0;
-                    UpdatePayload.Verify(target, offered);
+                    UpdatePayload.Verify(target, offered, signatureText);
                     timeout.Token.ThrowIfCancellationRequested();
                     executable = portable ? await Task.Run(() => UpdatePayload.ExtractPortable(target, portableFolder), timeout.Token) : downloaded;
                 }

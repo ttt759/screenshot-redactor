@@ -71,12 +71,25 @@ try {
   assert.equal((await readFile(hotkeySettings, 'utf8')).trim(), '7:119\n7:118');
   await page.getByRole('button', { name: '截图剪贴板' }).click();
   const history = page.getByRole('dialog', { name: '截图剪贴板' });
+  const historyToggle = history.getByRole('switch');
+  assert.equal(await historyToggle.isChecked(), false);
+  await historyToggle.check();
+  await page.waitForFunction(() => document.querySelector('#toggle-capture-history')?.checked === true);
+  assert.equal((await readFile(resolve(testProfile, 'ScreenshotRedactor', 'history.txt'), 'utf8')).trim(), '1');
   await history.getByRole('checkbox').nth(29).waitFor({ state: 'attached' });
   assert.equal(await history.getByRole('checkbox').count(), 30);
   await history.getByRole('checkbox').first().check();
   await history.getByRole('button', { name: '导入所选截图' }).click();
   await page.locator('.file-row').filter({ hasText: '截图-20261114-' }).waitFor();
   await page.getByRole('button', { name: '移除当前截图' }).click();
+  await page.getByRole('button', { name: '截图剪贴板' }).click();
+  await history.getByRole('button', { name: '清空历史' }).click();
+  await history.getByRole('button', { name: '取消' }).click();
+  assert.equal(await history.getByRole('checkbox').count(), 30);
+  await history.getByRole('button', { name: '清空历史' }).click();
+  await history.getByRole('button', { name: '确认清空' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('#capture-list input[type="checkbox"]').length === 0);
+  await history.getByRole('button', { name: '关闭' }).click();
 
   const stage = await page.locator('#stage').boundingBox();
   const drag = await context.newCDPSession(page);
@@ -120,6 +133,9 @@ try {
   assert.deepEqual(pixel, [0, 0, 0, 255]);
   await page.keyboard.press('e');
 
+  await page.evaluate(() => {
+    Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true });
+  });
   await button('导出全部 ZIP').click();
   const path = resolve(output, 'screenshots-redacted.zip');
   let data;
@@ -132,7 +148,7 @@ try {
   const zip = unzipSync(data);
   assert.deepEqual(Object.keys(zip), ['01-redacted.png', '02-redacted.png']);
   assert.deepEqual(errors, []);
-  console.log('Desktop smoke passed: 30 local captures, history import, drag import, editing, and ZIP export.');
+  console.log('Desktop smoke passed: 30 local captures, history toggle & confirm clear, history import, drag import, editing, and ZIP export.');
 } finally {
   await browser?.close();
   if (app.exitCode === null) {

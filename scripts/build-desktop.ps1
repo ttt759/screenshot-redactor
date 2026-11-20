@@ -3,7 +3,7 @@ $root = Split-Path $PSScriptRoot -Parent
 $output = Join-Path $root 'release/lightweight/win-unpacked'
 $package = Get-Content -Raw (Join-Path $root 'package.json') | ConvertFrom-Json
 $version = $package.version
-$buildVersion = $package.build.buildVersion
+$buildVersion = $version
 $sdkVersion = '1.0.4314.35'
 $sdkHash = '90778DEB1B77E36292828B4B5833C9255C27533F40E0DDD55891AE718944EDC4'
 $sdkCache = Join-Path ([IO.Path]::GetTempPath()) "screenshot-redactor-webview2-$sdkVersion"
@@ -38,7 +38,7 @@ try {
 }
 
 $compiler = Join-Path $env:SystemRoot 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
-$metadata = Join-Path $sdkCache "version-$version-$buildVersion.cs"
+$metadata = Join-Path $sdkCache "version-$version.cs"
 @"
 [assembly: System.Reflection.AssemblyVersion("$buildVersion.0")]
 [assembly: System.Reflection.AssemblyFileVersion("$buildVersion.0")]

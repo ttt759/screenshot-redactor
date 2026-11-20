@@ -89,7 +89,52 @@ internal static class NativeCaptureTest
             using (var edited = form.RenderSelection())
                 Check(edited.Size == new Size(55, 47), "A drag over a window must create a free-form crop.");
         }
-        Console.WriteLine("Native capture passed: window and free selection, cursor feedback, tool shortcuts, undo, and flattened pixels.");
+        TestCaptureHistory();
+        Console.WriteLine("Native capture passed: window and free selection, cursor feedback, tool shortcuts, undo, capture history policy, and flattened pixels.");
+    }
+
+    private static void TestCaptureHistory()
+    {
+        var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "redactor-history-" + Guid.NewGuid().ToString("N"));
+        var captures = System.IO.Path.Combine(root, "Captures");
+        var settings = System.IO.Path.Combine(root, "history.txt");
+        try
+        {
+            var history = new CaptureHistory(captures, settings);
+            Check(!history.Enabled, "CaptureHistory must default to disabled.");
+            using (var sample = new Bitmap(16, 16))
+            {
+                history.Save(sample);
+                Check(history.List().Length == 0 && !System.IO.Directory.Exists(captures),
+                    "Disabled CaptureHistory must not persist captures to disk.");
+                history.SetEnabled(true);
+                Check(history.Enabled && System.IO.File.ReadAllText(settings).Trim() == "1",
+                    "Enabling CaptureHistory must persist state to history.txt.");
+                history.Save(sample);
+                var saved = history.List();
+                Check(saved.Length == 1, "Enabled CaptureHistory must persist captures.");
+
+                var expiredName = "20200101-000000-000-deadbeef.png";
+                var expiredPath = System.IO.Path.Combine(captures, expiredName);
+                sample.Save(expiredPath, ImageFormat.Png);
+                System.IO.File.SetLastWriteTimeUtc(expiredPath, DateTime.UtcNow.AddHours(-25));
+
+                var reloaded = new CaptureHistory(captures, settings);
+                Check(reloaded.Enabled, "Reloaded CaptureHistory must preserve enabled state.");
+                var afterPrune = reloaded.List();
+                Check(afterPrune.Length == 1 && afterPrune[0] == saved[0],
+                    "Enabled CaptureHistory must prune captures older than 24 hours.");
+
+                reloaded.Clear();
+                Check(reloaded.List().Length == 0, "Clear must remove all saved captures.");
+                reloaded.SetEnabled(false);
+                Check(!new CaptureHistory(captures, settings).Enabled, "Disabling CaptureHistory must persist to history.txt.");
+            }
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(root)) System.IO.Directory.Delete(root, true);
+        }
     }
 
     private static void Drag(Control form, Point start, Point end)

@@ -1,7 +1,8 @@
 {
   "name": "screenshot-redactor",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Batch screenshot redaction on your device",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
@@ -22,7 +23,6 @@
   },
   "build": {
     "appId": "io.github.ttt759.screenshotredactor",
-    "buildVersion": "0.3.22",
     "productName": "截图脱敏助手",
     "electronVersion": "45.3.1",
     "directories": { "output": "release/lightweight" },
