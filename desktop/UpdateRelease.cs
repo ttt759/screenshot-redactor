@@ -11,8 +11,8 @@ internal sealed class UpdateRelease
     internal const string Repository = "ttt759/screenshot-redactor";
     internal const long Limit = 30000000;
     internal const long SignatureLimit = 4096;
-    // Replace with the release signing public key matching GitHub secret UPDATE_SIGNING_KEY.
-    internal const string PublicKeyXml = "<RSAKeyValue><Modulus>tOlNvWKEttz4LF8KRT8lP6vdSi9pcYQHA7z26SAnNMXJXVxqn/U4F5rFMe4qW3bNwQlP/aBjMgz7qhYPyBpjqXwi+PypdVUs9z5Svde7Hs6RphzFaKc56uxTFiaYKfLaiFmGxh/AbAkSaNohjP4j44xf30yAME9SSdLS8ZiWf/hJj4f9ysBiVQw+gvcABi3KBniioBg+FwYF58aaDgBKQe7BznABfDTsN4qobLeg8Q4OSxuTByMeaTaNjCBrEigwk8rh4hHIn6d/8y/u4VcxREOi+7X8ZPsRZoaI0PeAy2KUbvDlyjLKv4IR0bY/BBQG77xDa5l1ZEBxUEcfVUQiCw==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
+    // Matches GitHub Actions secret UPDATE_SIGNING_KEY.
+    internal const string PublicKeyXml = "<RSAKeyValue><Modulus>i3/i3ZmdYLaJ3uMVHhJQv2ZYEpDTaPlojAX9AkdHYKg+aYLMWdCCmqfRT5jEJjPrpfaXt5T1JpUhMgn0/W/beD3rWnl+FPHWs3wm8zpEWN8ojwbd31Oc1/OXJRxJ6x4xHEQvUszTOmtZijOYvCgpFZ5TX72djtPxEJ99ROhlpJ/YnMdJQK6W6KnZKzIJ3dJx7292dZJ40UYnj0mGX+RDO+29SiLTDNLIaG5An4GdI2ZltDkJ1UV0xuoVbLGfAe2OTLuUseS0X8Y4ePov1Iolbg5kDfA13LGfoBMEBwQdjdhjPil9DLVDfENLvkBkpEA15zLJOlRqq4YHs0BBbYxmQw==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
     internal readonly Version Version;
     internal readonly string Name, Digest, SignatureName;
     internal readonly Uri Url, SignatureUrl;
