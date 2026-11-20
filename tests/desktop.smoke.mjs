@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright';
 import { unzipSync } from 'fflate';
 
 const executable = resolve(process.argv[2] ?? 'release/lightweight/win-unpacked/ScreenshotRedactor.exe');
+const executableName = basename(executable);
+const policyKey = 'HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments';
 const server = createServer();
 await new Promise((done, reject) => server.once('error', reject).listen(0, '127.0.0.1', done));
 const { port } = server.address();
@@ -24,6 +26,15 @@ await writeFile(hotkeySettings, '7:117\n7:118');
 const sample = await readFile(resolve('docs/samples/account.png'));
 for (let i = 0; i < 30; i++) {
   await writeFile(resolve(captureFolder, `20261114-120000-${String(i).padStart(3, '0')}-aabbccdd.png`), sample);
+}
+// WebView2 Runtime 150+ ignores WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS on elevated hosts (such as CI runners)
+// and requires app-scoped HKLM policy to expose the CDP port.
+let policyWritten = false;
+if (process.platform === 'win32') {
+  try {
+    execFileSync('reg', ['add', policyKey, '/v', executableName, '/t', 'REG_SZ', '/d', `--remote-debugging-port=${port}`, '/f', '/reg:64'], { stdio: 'ignore' });
+    policyWritten = true;
+  } catch { /* Non-elevated runs use WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS below. */ }
 }
 const appLogs = [];
 const app = spawn(executable, [], { env: { ...process.env, SCREENSHOT_REDACTOR_TEST_PROFILE: testProfile, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` } });
@@ -46,9 +57,8 @@ try {
     await delay(250);
   }
   if (!cdpReady) {
-    const { execFileSync } = await import('node:child_process');
     let procs = '';
-    try { procs = execFileSync('tasklist', ['/FI', 'IMAGENAME eq ScreenshotRedactor.exe'], { encoding: 'utf8' }); } catch {}
+    try { procs = execFileSync('tasklist', ['/FI', `IMAGENAME eq ${executableName}`], { encoding: 'utf8' }); } catch {}
     let webviewProcs = '';
     try { webviewProcs = execFileSync('tasklist', ['/FI', 'IMAGENAME eq msedgewebview2.exe'], { encoding: 'utf8' }); } catch {}
     throw new Error(`WebView2 CDP did not open on ${endpoint} (exitCode=${app.exitCode}).\n${procs}\n${webviewProcs}\nLogs: ${appLogs.join('')}`);
@@ -174,6 +184,9 @@ try {
     await new Promise((done) => close.once('exit', done));
     await Promise.race([exited, delay(4500, null, { ref: false })]);
     if (app.exitCode === null) app.kill();
+  }
+  if (policyWritten) {
+    try { execFileSync('reg', ['delete', policyKey, '/v', executableName, '/f', '/reg:64'], { stdio: 'ignore' }); } catch {}
   }
   await rm(output, { recursive: true, force: true });
 }
