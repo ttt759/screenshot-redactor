@@ -1026,7 +1026,7 @@ test('tracks hasUnexportedChanges with beforeunload and resets after single or b
   expect(await checkBeforeUnload()).toBe(false);
 });
 
-test('reuses 180px thumbUrl in sidebar, batch mask map, and batch targets', async ({ page }) => {
+test('updates only edited sidebar thumbnails and keeps the small originals for batch selection', async ({ page }) => {
   await page.goto('/');
   await page.locator('#file-input').setInputFiles([
     { name: 'one.png', mimeType: 'image/png', buffer: await readFile(resolve('docs/samples/account.png')) },
@@ -1039,14 +1039,58 @@ test('reuses 180px thumbUrl in sidebar, batch mask map, and batch targets', asyn
   expect(sidebarThumbs[0].src.startsWith('blob:')).toBe(true);
   expect(Math.max(sidebarThumbs[0].width, sidebarThumbs[0].height)).toBeLessThanOrEqual(180);
 
-  const bounds = await page.locator('#artboard').boundingBox();
-  await drag(page, imagePoint(bounds, 1120, 700, 120, 120), imagePoint(bounds, 1120, 700, 280, 180));
+  const rows = page.locator('.file-row');
+  const drawOnImage = async (from, to) => {
+    const bounds = await page.locator('#artboard').boundingBox();
+    await drag(page, imagePoint(bounds, 1120, 700, ...from), imagePoint(bounds, 1120, 700, ...to));
+  };
+  const thumbnail = rows.first().locator('canvas.thumb');
+  const pixels = () => thumbnail.evaluate((canvas) => {
+    const context = canvas.getContext('2d');
+    return [[190, 150], [520, 150]].map(([x, y]) => [...context.getImageData(
+      Math.floor(x * canvas.width / 1120), Math.floor(y * canvas.height / 700), 1, 1,
+    ).data]);
+  });
+  await rows.nth(1).click();
+  await drawOnImage([120, 120], [280, 180]);
+
+  const secondThumbnail = rows.nth(1).locator('canvas.thumb');
+  await expect(secondThumbnail).toBeVisible();
+  const unchanged = await secondThumbnail.elementHandle();
+  await unchanged.evaluate((canvas) => {
+    const context = canvas.getContext('2d');
+    context.putImageData(new ImageData(Uint8ClampedArray.of(255, 0, 255, 255), 1, 1), 0, 0);
+  });
+  await rows.first().click();
+  await drawOnImage([120, 120], [280, 180]);
+  await expect(thumbnail).toBeVisible();
+  expect(await thumbnail.evaluate((canvas) => Math.max(canvas.width, canvas.height))).toBeLessThanOrEqual(180);
+  const black = [0, 0, 0, 255];
+  const drawn = await pixels();
+  expect(drawn[0]).toEqual(black);
+  expect(drawn[1]).not.toEqual(black);
+  await drawOnImage([190, 150], [520, 150]);
+  const moved = await pixels();
+  expect(moved[0]).not.toEqual(black);
+  expect(moved[1]).toEqual(black);
+
+  await page.getByRole('checkbox', { name: '标记为已检查' }).check();
+  await expect(rows.first()).toContainText('已检查');
+  expect(await pixels()).toEqual(moved);
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  expect(await pixels()).toEqual(drawn);
+  expect(await unchanged.evaluate((canvas) => canvas.isConnected &&
+    [...canvas.getContext('2d').getImageData(0, 0, 1, 1).data])).toEqual([255, 0, 255, 255]);
+
   await page.getByRole('button', { name: /^批量应用遮挡/ }).click();
 
   const mapSrc = await page.locator('#batch-mask-map img').getAttribute('src');
   const targetSrc = await page.locator('#batch-targets .thumb').first().getAttribute('src');
   expect(mapSrc).toBe(sidebarThumbs[0].src);
   expect(targetSrc).toBe(sidebarThumbs[1].src);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(rows.first().locator('img.thumb')).toHaveAttribute('src', sidebarThumbs[0].src);
 });
 
 test('streams ZIP export via showSaveFilePicker when available and preserves dirty state on cancel', async ({ page }) => {

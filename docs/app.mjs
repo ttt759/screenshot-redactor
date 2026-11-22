@@ -1,6 +1,6 @@
-import './icons.mjs?v=0.2.1';
-import { clamp, moveBox, outputName, pixelBounds, resizeBox } from './geometry.mjs?v=0.2.1';
-import { createThumbnailUrl, drawFlattened, exportImages, isMosaic, loadFile, loadImage, maskColors, mosaicTile } from './images.mjs?v=0.2.1';
+import './icons.mjs?v=0.2.2';
+import { clamp, moveBox, outputName, pixelBounds, resizeBox } from './geometry.mjs?v=0.2.2';
+import { createThumbnailUrl, drawFlattened, exportImages, isMosaic, loadFile, loadImage, maskColors, mosaicTile, thumbnailSize } from './images.mjs?v=0.2.2';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -129,14 +129,34 @@ function createScreenshotRow(entry) {
     const position = entries.indexOf(entry);
     if (position !== index) goTo(position);
   };
-  const refs = { row, state };
+  const refs = { row, state, thumb, redactedThumb: null, thumbnailBoxes: null };
   screenshotRows.set(entry, refs);
   return refs;
 }
 
+function renderRowThumbnail(entry, refs) {
+  if (refs.thumbnailBoxes === entry.boxes) return;
+
+  if (entry.boxes.length) {
+    if (!refs.redactedThumb) {
+      refs.redactedThumb = document.createElement('canvas');
+      refs.redactedThumb.className = 'thumb';
+      refs.redactedThumb.setAttribute('aria-hidden', 'true');
+      refs.thumb.replaceWith(refs.redactedThumb);
+    }
+    drawFlattened(refs.redactedThumb, entry, thumbnailSize(entry.width, entry.height));
+  } else if (refs.redactedThumb) {
+    refs.redactedThumb.replaceWith(refs.thumb);
+    refs.redactedThumb = null;
+  }
+  refs.thumbnailBoxes = entry.boxes;
+}
+
 function renderRows() {
   const rows = entries.map((entry, position) => {
-    const { row, state } = screenshotRows.get(entry) ?? createScreenshotRow(entry);
+    const refs = screenshotRows.get(entry) ?? createScreenshotRow(entry);
+    const { row, state } = refs;
+    renderRowThumbnail(entry, refs);
     row.tabIndex = position === index ? 0 : -1;
     if (position === index) row.setAttribute('aria-current', 'true');
     else row.removeAttribute('aria-current');

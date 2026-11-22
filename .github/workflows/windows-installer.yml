@@ -3,6 +3,7 @@ name: Windows installer
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
   installer:
@@ -16,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -29,14 +30,18 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
-          $releaseVersion = if ($env:RELEASE_TAG -match '^v\d+\.\d+$') { "$env:RELEASE_TAG.0" } else { $env:RELEASE_TAG }
-          if ($releaseVersion -ne "v$version") { throw 'Release tag must match package.json' }
           $name = "screenshot-redactor-setup-$version-windows-x64.exe"
           $portable = "screenshot-redactor-portable-$version-windows-x64.zip"
-          $existing = gh api --paginate "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets" --jq '.[] | select(.state == "uploaded" and .size > 0) | .name'
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           "name=$name" >> $env:GITHUB_OUTPUT
           "portable=$portable" >> $env:GITHUB_OUTPUT
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            'present=false' >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $releaseVersion = if ($env:RELEASE_TAG -match '^v\d+\.\d+$') { "$env:RELEASE_TAG.0" } else { $env:RELEASE_TAG }
+          if ($releaseVersion -ne "v$version") { throw 'Release tag must match package.json' }
+          $existing = gh api --paginate "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets" --jq '.[] | select(.state == "uploaded" and .size > 0) | .name'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $present = ($existing -contains $name -and $existing -contains "$name.sig" -and $existing -contains $portable -and $existing -contains "$portable.sig").ToString().ToLowerInvariant()
           "present=$present" >> $env:GITHUB_OUTPUT
       - if: steps.asset.outputs.present == 'false'
@@ -119,8 +124,20 @@ jobs:
           } finally {
             $rsa.Dispose()
           }
+      - name: Stage signed Windows packages for an existing release
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: signed-windows-packages
+          if-no-files-found: error
+          retention-days: 3
+          path: |
+            release/lightweight/${{ steps.asset.outputs.name }}
+            release/lightweight/${{ steps.asset.outputs.name }}.sig
+            release/lightweight/${{ steps.asset.outputs.portable }}
+            release/lightweight/${{ steps.asset.outputs.portable }}.sig
       - name: Attach Windows downloads
-        if: steps.asset.outputs.present == 'false'
+        if: github.event_name == 'release' && steps.asset.outputs.present == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           INSTALLER_NAME: ${{ steps.asset.outputs.name }}

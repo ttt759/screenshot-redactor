@@ -1,4 +1,4 @@
-import { outputName } from './geometry.mjs?v=0.2.1';
+import { outputName } from './geometry.mjs?v=0.2.2';
 
 export const maskColors = Object.freeze({ black: '#000', white: '#fff', gray: '#484b52' });
 const mosaicStyles = new Set(['mosaic', 'brush', 'dots', 'soft']);
@@ -108,12 +108,16 @@ export function mosaicTile(image, box) {
   return pattern;
 }
 
-export async function createThumbnailUrl(image) {
-  const sourceWidth = image.naturalWidth || image.width;
-  const sourceHeight = image.naturalHeight || image.height;
+export function thumbnailSize(sourceWidth, sourceHeight) {
   const scale = Math.min(1, 180 / Math.max(sourceWidth, sourceHeight));
-  const width = Math.max(1, Math.round(sourceWidth * scale));
-  const height = Math.max(1, Math.round(sourceHeight * scale));
+  return {
+    width: Math.max(1, Math.round(sourceWidth * scale)),
+    height: Math.max(1, Math.round(sourceHeight * scale)),
+  };
+}
+
+export async function createThumbnailUrl(image) {
+  const { width, height } = thumbnailSize(image.naturalWidth || image.width, image.naturalHeight || image.height);
   const bitmap = await createImageBitmap(image, { resizeWidth: width, resizeHeight: height, resizeQuality: 'high' });
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -172,11 +176,12 @@ export async function loadFile(file) {
   }
 }
 
-export function drawFlattened(canvas, entry) {
-  canvas.width = entry.width;
-  canvas.height = entry.height;
+export function drawFlattened(canvas, entry, { width, height } = entry) {
+  canvas.width = width;
+  canvas.height = height;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('无法创建画布');
+  context.scale(width / entry.width, height / entry.height);
   context.drawImage(entry.image, 0, 0);
   // Apply mosaic first so a solid mask always wins in overlapping regions.
   for (const box of entry.boxes) {

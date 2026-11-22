@@ -8,7 +8,7 @@
 
 Windows 版启动时会在后台检查 GitHub，也可以点「检查更新」。发现新版后，点击「更新到…」下载。校验完成后，安装版可一键覆盖安装并重启。便携版会解压到新的本机目录并打开，下次从原来的位置启动也会进入新版。更新前先导出需要保留的编辑结果，操作结束后本机截图历史和快捷键仍可使用。此前下载的无更新功能版本需要手动下载一次。联网仅用于检查和下载更新。
 
-发布更新时，将 GitHub Release 设为 Latest，由工作流使用 Secrets 中的 RSA-2048 私钥 `UPDATE_SIGNING_KEY`（与 [UpdateRelease.cs](desktop/UpdateRelease.cs) 中的 `PublicKeyXml` 配对）为 Windows 安装包和便携 ZIP 生成 `.sig` 签名文件并一并上传。同版本覆盖时还需在发布说明里更新 `<!-- screenshot-redactor-build: 0.2.1 -->` 中的版本号。
+发布更新时，将 GitHub Release 设为 Latest，由工作流使用 Secrets 中的 RSA-2048 私钥 `UPDATE_SIGNING_KEY`（与 [UpdateRelease.cs](desktop/UpdateRelease.cs) 中的 `PublicKeyXml` 配对）为 Windows 安装包和便携 ZIP 生成 `.sig` 签名文件并一并上传。同版本覆盖时，在 `package.json` 用 `build.buildVersion` 提升构建号并更新网页资源的 `?v=`。手动运行 Windows installer 工作流生成签名附件，替换发布附件后再将发布说明中的 `<!-- screenshot-redactor-build: 0.2.2 -->` 与新构建号同步。
 
 ![截图脱敏助手操作演示，将多个遮挡框应用到两张截图，逐张检查并导出 ZIP](./demo.gif)
 
