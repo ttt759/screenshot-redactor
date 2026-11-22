@@ -14,7 +14,7 @@
     "package:win": "npm run desktop && electron-builder --win nsis --x64 --prepackaged release/lightweight/win-unpacked --publish never"
   },
   "devDependencies": {
-    "@playwright/test": "1.61.0",
+    "@playwright/test": "1.65.1",
     "electron-builder": "26.18.0",
     "fflate": "0.8.3"
   },
